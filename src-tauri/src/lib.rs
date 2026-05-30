@@ -157,6 +157,17 @@ async fn git_set_global_config(key: String, value: String, state: State<'_, Repo
     Ok(serde_json::json!({ "success": true }))
 }
 
+#[tauri::command]
+async fn git_set_local_config(key: String, value: String, state: State<'_, RepoState>) -> Result<serde_json::Value, String> {
+    let repo = get_repo(&state)?;
+    if value.is_empty() {
+        Command::new("git").args(["-C", &repo, "config", "--local", "--unset", &key]).output().await.map_err(|e| e.to_string())?;
+    } else {
+        Command::new("git").args(["-C", &repo, "config", "--local", &key, &value]).output().await.map_err(|e| e.to_string())?;
+    }
+    Ok(serde_json::json!({ "success": true }))
+}
+
 // ============== Remotes ==============
 #[tauri::command]
 async fn git_get_remotes(state: State<'_, RepoState>) -> Result<serde_json::Value, String> {
@@ -179,6 +190,13 @@ async fn git_get_remotes(state: State<'_, RepoState>) -> Result<serde_json::Valu
 async fn git_set_remote(name: String, url: String, state: State<'_, RepoState>) -> Result<serde_json::Value, String> {
     let repo = get_repo(&state)?;
     let _ = Command::new("git").args(["-C", &repo, "remote", "remove", &name]).output().await;
+    Command::new("git").args(["-C", &repo, "remote", "add", &name, &url]).output().await.map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({ "success": true }))
+}
+
+#[tauri::command]
+async fn git_add_remote(name: String, url: String, state: State<'_, RepoState>) -> Result<serde_json::Value, String> {
+    let repo = get_repo(&state)?;
     Command::new("git").args(["-C", &repo, "remote", "add", &name, &url]).output().await.map_err(|e| e.to_string())?;
     Ok(serde_json::json!({ "success": true }))
 }
@@ -640,8 +658,8 @@ pub fn run() {
             git_branches, git_checkout, git_delete_branch,
             git_pull, git_push, git_push_tags,
             git_stash, git_stash_pop, git_stash_list, git_stash_apply, git_stash_drop,
-            git_discard, git_get_remotes, git_set_remote, git_remove_remote,
-            git_run_gc, git_run_clean, git_get_global_config, git_set_global_config, git_get_local_config,
+            git_discard, git_get_remotes, git_set_remote, git_add_remote, git_remove_remote,
+            git_run_gc, git_run_clean, git_get_global_config, git_set_global_config, git_get_local_config, git_set_local_config,
             git_tags, git_tag_create, git_tag_delete,
             auth_save_token, auth_load_token, auth_has_token, auth_remove_token_file, auth_change_pin, auth_verify_pin,
             recent_list, recent_remove, app_info, open_url

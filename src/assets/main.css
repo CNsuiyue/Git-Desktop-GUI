@@ -172,6 +172,11 @@ body {
   background: var(--danger-hover);
 }
 
+.btn-danger.btn-sm {
+  padding: 5px 12px;
+  font-size: 12px;
+}
+
 .btn-outline {
   background: none;
   color: var(--text-secondary);
@@ -1256,29 +1261,6 @@ body {
 
 .dialog-wide {
   width: 560px;
-}
-
-.dialog-settings {
-  width: 800px;
-  max-width: 90vw;
-}
-
-.settings-layout {
-  display: flex;
-  gap: 24px;
-}
-
-.settings-left {
-  flex: 1;
-  min-width: 0;
-}
-
-.settings-right {
-  width: 200px;
-  flex-shrink: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
 }
 
 .mit-notice-global {

@@ -12,14 +12,14 @@
       </span>
       <span class="status-dot" :class="{ clean: store.cleanState, dirty: !store.cleanState }"></span>
       <button class="btn-push" @click="openPushDialog" :disabled="store.cleanState">
-        <span class="push-text">推送</span>
+        <span class="push-text">一键推送</span>
       </button>
       <button class="btn-icon" title="刷新" @click="store.refresh()">&#x21BB;</button>
-      <button class="btn-icon" title="设置" @click="showSettings = true">&#x2699;</button>
+      <button class="btn-icon" title="应用设置" @click="appSettings?.open()">&#x2699;</button>
       <button class="btn-icon" title="打开文件夹" @click="store.openRepo()">&#x1F4C2;</button>
     </div>
     <div class="topbar-right" v-else>
-      <button class="btn-icon" title="设置" @click="showSettings = true">&#x2699;</button>
+      <button class="btn-icon" title="应用设置" @click="appSettings?.open()">&#x2699;</button>
     </div>
   </header>
 
@@ -100,62 +100,7 @@
     </div>
   </div>
 
-  <!-- Settings Dialog -->
-  <div class="overlay" v-if="showSettings" @click.self="showSettings = false">
-    <div class="dialog dialog-settings">
-      <h4>全局设置</h4>
-      <div class="settings-layout">
-        <div class="settings-left">
-          <div class="setting-row">
-            <div class="setting-text">
-              <span class="setting-title">暗色模式</span>
-              <span class="setting-desc">切换深色/浅色主题</span>
-            </div>
-            <button class="btn-sm" :class="store.darkMode ? 'btn-primary' : 'btn-outline'" @click="store.toggleTheme()">
-              {{ store.darkMode ? '已开启' : '已关闭' }}
-            </button>
-          </div>
-          <div class="setting-row">
-            <div class="setting-text">
-              <span class="setting-title">自动刷新</span>
-              <span class="setting-desc">定时刷新仓库状态</span>
-            </div>
-            <select v-model.number="autoRefreshVal" class="input" style="width:120px" @change="onAutoRefresh">
-              <option :value="0">关闭</option>
-              <option :value="5">5 秒</option>
-              <option :value="10">10 秒</option>
-              <option :value="30">30 秒</option>
-            </select>
-          </div>
-          <h4 style="margin-top:16px;font-size:13px;color:var(--text-secondary)">Git 全局配置</h4>
-          <div class="setting-row">
-            <div class="setting-text">
-              <span class="setting-title">用户名</span>
-              <span class="setting-desc">提交时显示的作者名称</span>
-            </div>
-            <input v-model="gitUserName" class="input" style="width:180px" @blur="saveConfig('user.name', gitUserName)" />
-          </div>
-          <div class="setting-row">
-            <div class="setting-text">
-              <span class="setting-title">邮箱</span>
-              <span class="setting-desc">提交时显示的作者邮箱</span>
-            </div>
-            <input v-model="gitUserEmail" class="input" style="width:220px" @blur="saveConfig('user.email', gitUserEmail)" />
-          </div>
-        </div>
-        <div class="settings-right">
-          <div class="app-info-card">
-            <div class="app-info-logo">&#x2B9E;</div>
-            <h5>{{ appInfo.name }}</h5>
-            <p class="app-version">v{{ appInfo.version }}</p>
-          </div>
-        </div>
-      </div>
-      <div class="dialog-actions" style="margin-top:12px">
-        <button class="btn-outline btn-sm" @click="showSettings = false">关闭</button>
-      </div>
-    </div>
-  </div>
+  <AppSettingsPanel ref="appSettings" />
 
   <!-- Success Toast -->
   <Transition name="toast-slide">
@@ -193,15 +138,10 @@
 <script setup>
 import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import { useGitStore } from '../stores/git.js'
+import AppSettingsPanel from './AppSettingsPanel.vue'
 
 const store = useGitStore()
-
-// Settings
-const showSettings = ref(false)
-const autoRefreshVal = ref(0)
-const gitUserName = ref('')
-const gitUserEmail = ref('')
-const appInfo = ref({ name: 'Git-Desktop-GUI', version: '1.0.0' })
+const appSettings = ref(null)
 
 // Push Dialog
 const showPushDialog = ref(false)
@@ -244,32 +184,9 @@ function getPushButtonText() {
 }
 
 onMounted(() => {
-  autoRefreshVal.value = parseInt(localStorage.getItem('autoRefresh') || '0')
-  if (autoRefreshVal.value > 0) store.setAutoRefresh(autoRefreshVal.value)
+  const autoRefreshVal = parseInt(localStorage.getItem('autoRefresh') || '0')
+  if (autoRefreshVal > 0) store.setAutoRefresh(autoRefreshVal)
 })
-
-watch(showSettings, async (val) => {
-  if (val) {
-    const info = await window.gitAPI.getAppInfo()
-    if (info) appInfo.value = info
-    const c = await window.gitAPI.getGlobalConfig()
-    if (c.config) {
-      const lines = c.config.split('\n')
-      const m = {}
-      lines.forEach(l => { const eq = l.indexOf('='); if (eq > 0) m[l.slice(0, eq)] = l.slice(eq + 1) })
-      gitUserName.value = m['user.name'] || ''
-      gitUserEmail.value = m['user.email'] || ''
-    }
-  }
-})
-
-async function saveConfig(key, value) {
-  await window.gitAPI.setGlobalConfig(key, value || '')
-}
-
-function onAutoRefresh() {
-  store.setAutoRefresh(autoRefreshVal.value)
-}
 
 async function openPushDialog() {
   pushMessage.value = ''

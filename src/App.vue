@@ -74,7 +74,7 @@ const BranchPanel = defineAsyncComponent(() => import('./components/BranchPanel.
 const StashPanel = defineAsyncComponent(() => import('./components/StashPanel.vue'))
 const ActionsPanel = defineAsyncComponent(() => import('./components/ActionsPanel.vue'))
 const RemotePanel = defineAsyncComponent(() => import('./components/RemotePanel.vue'))
-const SettingsPanel = defineAsyncComponent(() => import('./components/SettingsPanel.vue'))
+const ProjectSettingsPanel = defineAsyncComponent(() => import('./components/ProjectSettingsPanel.vue'))
 
 const store = useGitStore()
 const remoteUrl = ref('')
@@ -124,7 +124,7 @@ const tabs = [
   { key: 'stash', label: '暂存栈', icon: '📦', comp: StashPanel },
   { key: 'actions', label: '快捷', icon: '⚡', comp: ActionsPanel },
   { key: 'remote', label: '当前项目远程设置', icon: '🌐', comp: RemotePanel },
-  { key: 'settings', label: '当前项目设置', icon: '⚙', comp: SettingsPanel }
+  { key: 'settings', label: '当前项目设置', icon: '⚙', comp: ProjectSettingsPanel }
 ]
 
 const currentTab = computed(() => {
