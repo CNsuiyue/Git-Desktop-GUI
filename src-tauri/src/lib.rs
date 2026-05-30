@@ -279,16 +279,17 @@ async fn git_remove_remote(name: String, state: State<'_, RepoState>) -> Result<
     Ok(serde_json::json!({ "success": true }))
 }
 
-const PUSH_TIMEOUT_SECS: u64 = 60;
+const PUSH_TIMEOUT_SECS: u64 = 20;
 
 // ============== Push / Pull ==============
 #[tauri::command]
 async fn git_push(token: Option<String>, remote_name: Option<String>, state: State<'_, RepoState>, app: tauri::AppHandle) -> Result<serde_json::Value, String> {
     let repo = get_repo(&state)?;
     let remote_name = remote_name.unwrap_or("origin".into());
-    let branch = String::from_utf8_lossy(
-        &git_command().args(["-C", &repo, "rev-parse", "--abbrev-ref", "HEAD"]).output().await.unwrap().stdout
-    ).trim().to_string();
+    let branch = match git_command().args(["-C", &repo, "rev-parse", "--abbrev-ref", "HEAD"]).output().await {
+        Ok(out) => String::from_utf8_lossy(&out.stdout).trim().to_string(),
+        Err(e) => return Ok(serde_json::json!({ "error": format!("获取分支失败: {}", e) })),
+    };
 
     let mut push_target = remote_name.clone();
     if let Some(t) = token {
@@ -308,67 +309,66 @@ async fn git_push(token: Option<String>, remote_name: Option<String>, state: Sta
         "stage": "counting-objects",
         "progress": 25,
         "detail": "正在统计对象..."
-    })).map_err(|e| e.to_string())?;
+    })).ok();
 
-    let mut child = std_git_command()
+    let child = std_git_command()
         .args(["-C", &repo, "push", "-u", &push_target, &branch, "--progress", "--no-verify"])
-        .stdout(Stdio::piped())
+        .stdout(Stdio::null())
         .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("启动 git 推送失败: {}", e))?;
+        .spawn();
 
-    let mut error_lines = Vec::new();
-
-    let push_future = async {
-        if let Some(stderr) = child.stderr.take() {
-            let reader = BufReader::new(stderr);
-            for line in reader.lines() {
-                if let Ok(line) = line {
-                    let line_lower = line.to_lowercase();
-                    
-                    if line_lower.contains("error") || line_lower.contains("fatal") || line_lower.contains("rejected") {
-                        error_lines.push(line.clone());
-                    }
-                    
-                    if line_lower.contains("counting") || line_lower.contains("enumerating") {
-                        app.emit("push:progress", serde_json::json!({
-                            "stage": "counting-objects",
-                            "progress": 30,
-                            "detail": &line
-                        })).ok();
-                    } else if line_lower.contains("compressing") {
-                        app.emit("push:progress", serde_json::json!({
-                            "stage": "compressing-objects",
-                            "progress": 50,
-                            "detail": &line
-                        })).ok();
-                    } else if line_lower.contains("writing") {
-                        let pct = extract_reg_percent(&line).unwrap_or(65);
-                        app.emit("push:progress", serde_json::json!({
-                            "stage": "writing-objects",
-                            "progress": 60 + (pct * 25 / 100),
-                            "detail": &line
-                        })).ok();
-                    } else if line_lower.contains("total") || line_lower.contains("to") {
-                        app.emit("push:progress", serde_json::json!({
-                            "stage": "done",
-                            "progress": 95,
-                            "detail": &line
-                        })).ok();
-                    }
-                }
-            }
-        }
-
-        child.wait().map_err(|e| format!("推送执行失败: {}", e))
+    let mut child = match child {
+        Ok(c) => c,
+        Err(e) => return Ok(serde_json::json!({ "error": format!("启动 git 推送失败: {}", e) })),
     };
 
-    let status = match tokio::time::timeout(std::time::Duration::from_secs(PUSH_TIMEOUT_SECS), push_future).await {
-        Ok(result) => result?,
-        Err(_) => {
-            let _ = child.kill();
-            return Err(format!("推送超时（{}秒），请检查网络连接", PUSH_TIMEOUT_SECS));
+    let mut all_stderr = String::new();
+
+    if let Some(stderr) = child.stderr.take() {
+        let reader = BufReader::new(stderr);
+        for line in reader.lines().map_while(Result::ok) {
+            all_stderr.push_str(&line);
+            all_stderr.push('\n');
+            let line_lower = line.to_lowercase();
+            
+            if line_lower.contains("counting") || line_lower.contains("enumerating") {
+                app.emit("push:progress", serde_json::json!({
+                    "stage": "counting-objects",
+                    "progress": 30,
+                    "detail": &line
+                })).ok();
+            } else if line_lower.contains("compressing") {
+                app.emit("push:progress", serde_json::json!({
+                    "stage": "compressing-objects",
+                    "progress": 50,
+                    "detail": &line
+                })).ok();
+            } else if line_lower.contains("writing") {
+                let pct = extract_reg_percent(&line).unwrap_or(65);
+                app.emit("push:progress", serde_json::json!({
+                    "stage": "writing-objects",
+                    "progress": 60 + (pct * 25 / 100),
+                    "detail": &line
+                })).ok();
+            } else if line_lower.contains("total") || line_lower.contains("to") {
+                app.emit("push:progress", serde_json::json!({
+                    "stage": "done",
+                    "progress": 95,
+                    "detail": &line
+                })).ok();
+            }
         }
+    }
+
+    let wait_handle = tokio::task::spawn_blocking(move || child.wait());
+    let status = match tokio::time::timeout(
+        std::time::Duration::from_secs(PUSH_TIMEOUT_SECS),
+        wait_handle
+    ).await {
+        Ok(Ok(Ok(s))) => s,
+        Ok(Ok(Err(e))) => return Ok(serde_json::json!({ "error": format!("推送执行失败: {}", e) })),
+        Ok(Err(e)) => return Ok(serde_json::json!({ "error": format!("推送任务失败: {}", e) })),
+        Err(_) => return Ok(serde_json::json!({ "error": format!("推送超时（{}秒），请检查网络连接", PUSH_TIMEOUT_SECS) })),
     };
 
     if status.success() {
@@ -379,12 +379,23 @@ async fn git_push(token: Option<String>, remote_name: Option<String>, state: Sta
         })).ok();
         Ok(serde_json::json!({ "success": true }))
     } else {
-        let error_msg = if error_lines.is_empty() {
-            "推送失败，请检查网络连接和远程仓库权限".to_string()
-        } else {
-            error_lines.join("\n")
-        };
-        Err(error_msg)
+        let error_msg = extract_push_error(&all_stderr);
+        Ok(serde_json::json!({ "error": error_msg }))
+    }
+}
+
+fn extract_push_error(output: &str) -> String {
+    let mut errors = Vec::new();
+    for line in output.lines() {
+        let lower = line.to_lowercase();
+        if lower.contains("error") || lower.contains("fatal") || lower.contains("rejected") || lower.contains("denied") {
+            errors.push(line.trim().to_string());
+        }
+    }
+    if errors.is_empty() {
+        "推送失败，请检查网络连接和远程仓库权限".to_string()
+    } else {
+        errors.join("\n")
     }
 }
 
