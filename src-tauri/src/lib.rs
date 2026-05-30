@@ -742,6 +742,12 @@ async fn recent_remove(dir: String) -> Result<serde_json::Value, String> {
     Ok(serde_json::json!({ "success": true }))
 }
 
+#[tauri::command]
+async fn recent_clear_all() -> Result<serde_json::Value, String> {
+    write_recent_list(&[]);
+    Ok(serde_json::json!({ "success": true }))
+}
+
 // ============== App Info ==============
 #[tauri::command]
 async fn app_info(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
@@ -809,7 +815,7 @@ pub fn run() {
             git_run_gc, git_run_clean, git_get_global_config, git_set_global_config, git_get_local_config, git_set_local_config,
             git_tags, git_tag_create, git_tag_delete,
             auth_save_token, auth_load_token, auth_has_token, auth_remove_token_file, auth_change_pin, auth_verify_pin,
-            recent_list, recent_remove, app_info, open_url
+            recent_list, recent_remove, recent_clear_all, app_info, open_url
         ])
         .setup(|app| {
             if cfg!(debug_assertions) {
