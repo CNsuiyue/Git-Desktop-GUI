@@ -1,7 +1,8 @@
 use std::sync::Mutex;
-use std::process::Command as StdCommand;
+use std::process::{Command as StdCommand, Stdio};
+use std::io::{BufRead, BufReader};
 use tokio::process::Command;
-use tauri::{State, Manager};
+use tauri::{State, Manager, Emitter};
 use serde::{Deserialize, Serialize};
 
 struct RepoState(Mutex<Option<String>>);
@@ -191,7 +192,7 @@ async fn git_remove_remote(name: String, state: State<'_, RepoState>) -> Result<
 
 // ============== Push / Pull ==============
 #[tauri::command]
-async fn git_push(token: Option<String>, remote_name: Option<String>, state: State<'_, RepoState>) -> Result<serde_json::Value, String> {
+async fn git_push(token: Option<String>, remote_name: Option<String>, state: State<'_, RepoState>, app: tauri::AppHandle) -> Result<serde_json::Value, String> {
     let repo = get_repo(&state)?;
     let remote_name = remote_name.unwrap_or("origin".into());
     let branch = String::from_utf8_lossy(
@@ -212,25 +213,78 @@ async fn git_push(token: Option<String>, remote_name: Option<String>, state: Sta
         }
     }
 
-    let result = tokio::time::timeout(std::time::Duration::from_secs(120), tokio::task::spawn_blocking(move || {
-        StdCommand::new("git")
-            .args(["-C", &repo, "push", "-u", &push_target, &branch, "--progress", "--no-verify"])
-            .output()
-    })).await;
+    app.emit("push:progress", serde_json::json!({
+        "stage": "counting-objects",
+        "progress": 25,
+        "detail": "正在统计对象..."
+    })).map_err(|e| e.to_string())?;
 
-    let output = match result {
-        Ok(Ok(Ok(out))) => out,
-        Ok(Ok(Err(e))) => { return Err(format!("执行失败: {}", e)) }
-        Ok(Err(_)) => { return Err("线程错误".into()) }
-        Err(_) => { return Err("推送超时(120s)".into()) }
-    };
+    let mut child = StdCommand::new("git")
+        .args(["-C", &repo, "push", "-u", &push_target, &branch, "--progress", "--no-verify"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("启动 git 推送失败: {}", e))?;
 
-    if output.status.success() {
+    if let Some(stderr) = child.stderr.take() {
+        let reader = BufReader::new(stderr);
+        for line in reader.lines() {
+            if let Ok(line) = line {
+                let line_lower = line.to_lowercase();
+                
+                if line_lower.contains("counting") || line_lower.contains("enumerating") {
+                    app.emit("push:progress", serde_json::json!({
+                        "stage": "counting-objects",
+                        "progress": 30,
+                        "detail": &line
+                    })).ok();
+                } else if line_lower.contains("compressing") {
+                    app.emit("push:progress", serde_json::json!({
+                        "stage": "compressing-objects",
+                        "progress": 50,
+                        "detail": &line
+                    })).ok();
+                } else if line_lower.contains("writing") {
+                    let pct = extract_reg_percent(&line).unwrap_or(65);
+                    app.emit("push:progress", serde_json::json!({
+                        "stage": "writing-objects",
+                        "progress": 60 + (pct * 25 / 100),
+                        "detail": &line
+                    })).ok();
+                } else if line_lower.contains("total") || line_lower.contains("to") {
+                    app.emit("push:progress", serde_json::json!({
+                        "stage": "done",
+                        "progress": 95,
+                        "detail": &line
+                    })).ok();
+                }
+            }
+        }
+    }
+
+    let status = child.wait().map_err(|e| format!("推送执行失败: {}", e))?;
+
+    if status.success() {
+        app.emit("push:progress", serde_json::json!({
+            "stage": "done",
+            "progress": 100,
+            "detail": "推送完成"
+        })).ok();
         Ok(serde_json::json!({ "success": true }))
     } else {
-        let err = String::from_utf8_lossy(&output.stderr);
-        Err(if err.is_empty() { "推送失败，远程仓库拒绝".into() } else { err.to_string() })
+        Err("推送失败，远程仓库拒绝".into())
     }
+}
+
+fn extract_reg_percent(line: &str) -> Option<u32> {
+    for part in line.split_whitespace() {
+        if part.ends_with('%') {
+            if let Ok(n) = part.trim_end_matches('%').parse::<u32>() {
+                return Some(n);
+            }
+        }
+    }
+    None
 }
 
 #[tauri::command]

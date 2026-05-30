@@ -363,9 +363,9 @@ async function doUnlockAndPush() {
 const steps = reactive([
   { title: '暂存文件', detail: '(将变更加入暂存区 git add -A)', active: false, done: false },
   { title: '本地提交', detail: '(创建版本快照 git commit)', active: false, done: false },
-  { title: '对象统计', detail: '(计算需要传输的文件数量)', active: false, done: false },
-  { title: '对象压缩', detail: '(压缩数据以减少传输量)', active: false, done: false },
-  { title: '数据上传', detail: '(将数据写入远程仓库)', active: false, done: false },
+  { title: '对象统计', detail: '', active: false, done: false },
+  { title: '对象压缩', detail: '', active: false, done: false },
+  { title: '数据上传', detail: '', active: false, done: false },
   { title: '推送完成', detail: '(远程仓库已更新)', active: false, done: false }
 ])
 
@@ -457,7 +457,15 @@ async function doPush() {
 
   cleanup = window.gitAPI.onPushProgress((data) => {
     if (data.error) { pushError.value = data.error; return }
-    if (data.stage && stageToStep[data.stage] !== undefined) setStep(stageToStep[data.stage])
+    if (data.stage && stageToStep[data.stage] !== undefined) {
+      setStep(stageToStep[data.stage])
+      if (data.detail && typeof data.detail === 'string') {
+        const stepIdx = stageToStep[data.stage]
+        if (stepIdx < steps.length) {
+          steps[stepIdx].detail = data.detail
+        }
+      }
+    }
     if (typeof data.progress === 'number') progressPercent.value = Math.max(progressPercent.value, data.progress)
   })
 
