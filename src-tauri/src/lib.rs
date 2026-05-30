@@ -279,6 +279,8 @@ async fn git_remove_remote(name: String, state: State<'_, RepoState>) -> Result<
     Ok(serde_json::json!({ "success": true }))
 }
 
+const PUSH_TIMEOUT_SECS: u64 = 60;
+
 // ============== Push / Pull ==============
 #[tauri::command]
 async fn git_push(token: Option<String>, remote_name: Option<String>, state: State<'_, RepoState>, app: tauri::AppHandle) -> Result<serde_json::Value, String> {
@@ -317,47 +319,57 @@ async fn git_push(token: Option<String>, remote_name: Option<String>, state: Sta
 
     let mut error_lines = Vec::new();
 
-    if let Some(stderr) = child.stderr.take() {
-        let reader = BufReader::new(stderr);
-        for line in reader.lines() {
-            if let Ok(line) = line {
-                let line_lower = line.to_lowercase();
-                
-                if line_lower.contains("error") || line_lower.contains("fatal") || line_lower.contains("rejected") {
-                    error_lines.push(line.clone());
-                }
-                
-                if line_lower.contains("counting") || line_lower.contains("enumerating") {
-                    app.emit("push:progress", serde_json::json!({
-                        "stage": "counting-objects",
-                        "progress": 30,
-                        "detail": &line
-                    })).ok();
-                } else if line_lower.contains("compressing") {
-                    app.emit("push:progress", serde_json::json!({
-                        "stage": "compressing-objects",
-                        "progress": 50,
-                        "detail": &line
-                    })).ok();
-                } else if line_lower.contains("writing") {
-                    let pct = extract_reg_percent(&line).unwrap_or(65);
-                    app.emit("push:progress", serde_json::json!({
-                        "stage": "writing-objects",
-                        "progress": 60 + (pct * 25 / 100),
-                        "detail": &line
-                    })).ok();
-                } else if line_lower.contains("total") || line_lower.contains("to") {
-                    app.emit("push:progress", serde_json::json!({
-                        "stage": "done",
-                        "progress": 95,
-                        "detail": &line
-                    })).ok();
+    let push_future = async {
+        if let Some(stderr) = child.stderr.take() {
+            let reader = BufReader::new(stderr);
+            for line in reader.lines() {
+                if let Ok(line) = line {
+                    let line_lower = line.to_lowercase();
+                    
+                    if line_lower.contains("error") || line_lower.contains("fatal") || line_lower.contains("rejected") {
+                        error_lines.push(line.clone());
+                    }
+                    
+                    if line_lower.contains("counting") || line_lower.contains("enumerating") {
+                        app.emit("push:progress", serde_json::json!({
+                            "stage": "counting-objects",
+                            "progress": 30,
+                            "detail": &line
+                        })).ok();
+                    } else if line_lower.contains("compressing") {
+                        app.emit("push:progress", serde_json::json!({
+                            "stage": "compressing-objects",
+                            "progress": 50,
+                            "detail": &line
+                        })).ok();
+                    } else if line_lower.contains("writing") {
+                        let pct = extract_reg_percent(&line).unwrap_or(65);
+                        app.emit("push:progress", serde_json::json!({
+                            "stage": "writing-objects",
+                            "progress": 60 + (pct * 25 / 100),
+                            "detail": &line
+                        })).ok();
+                    } else if line_lower.contains("total") || line_lower.contains("to") {
+                        app.emit("push:progress", serde_json::json!({
+                            "stage": "done",
+                            "progress": 95,
+                            "detail": &line
+                        })).ok();
+                    }
                 }
             }
         }
-    }
 
-    let status = child.wait().map_err(|e| format!("推送执行失败: {}", e))?;
+        child.wait().map_err(|e| format!("推送执行失败: {}", e))
+    };
+
+    let status = match tokio::time::timeout(std::time::Duration::from_secs(PUSH_TIMEOUT_SECS), push_future).await {
+        Ok(result) => result?,
+        Err(_) => {
+            let _ = child.kill();
+            return Err(format!("推送超时（{}秒），请检查网络连接", PUSH_TIMEOUT_SECS));
+        }
+    };
 
     if status.success() {
         app.emit("push:progress", serde_json::json!({
