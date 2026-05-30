@@ -36,6 +36,15 @@ async fn git_out_cached(repo: &str, args: &[&str]) -> Result<String, String> {
         String::from_utf8_lossy(&output.stderr)))
 }
 
+fn normalize_path(path: &std::path::Path) -> std::path::PathBuf {
+    let s = path.to_string_lossy();
+    if cfg!(target_os = "windows") && s.starts_with("\\\\?\\") {
+        std::path::PathBuf::from(&s[4..])
+    } else {
+        path.to_path_buf()
+    }
+}
+
 fn validate_path(path: &str) -> Result<std::path::PathBuf, String> {
     let p = std::path::PathBuf::from(path);
     if !p.exists() {
@@ -45,7 +54,7 @@ fn validate_path(path: &str) -> Result<std::path::PathBuf, String> {
     if !canonical.is_dir() {
         return Err("路径不是一个目录".to_string());
     }
-    Ok(canonical)
+    Ok(normalize_path(&canonical))
 }
 
 // ============== Open Repo ==============
@@ -666,30 +675,50 @@ fn dirs_sys_path() -> Option<std::path::PathBuf> {
     std::env::var("APPDATA").ok().map(|p| std::path::PathBuf::from(p).join("git-desktop-gui"))
 }
 
+fn normalize_path_str(dir: &str) -> String {
+    if cfg!(target_os = "windows") && dir.starts_with("\\\\?\\") {
+        dir[4..].to_string()
+    } else {
+        dir.to_string()
+    }
+}
+
+fn read_recent_list() -> Vec<String> {
+    std::fs::read_to_string(recents_path())
+        .ok()
+        .and_then(|s| serde_json::from_str::<Vec<String>>(&s).ok())
+        .unwrap_or_default()
+        .into_iter()
+        .map(|p| normalize_path_str(&p))
+        .collect()
+}
+
+fn write_recent_list(list: &[String]) {
+    let _ = std::fs::write(recents_path(), serde_json::to_string(list).unwrap());
+}
+
 fn save_recent(dir: &str) {
-    let path = recents_path();
-    let mut list: Vec<String> = std::fs::read_to_string(&path).ok()
-        .and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
-    list.retain(|p| p != dir);
-    list.insert(0, dir.to_string());
+    let normalized = normalize_path_str(dir);
+    let mut list = read_recent_list();
+    list.retain(|p| p != &normalized);
+    list.insert(0, normalized);
     list.truncate(10);
-    let _ = std::fs::write(&path, serde_json::to_string(&list).unwrap());
+    write_recent_list(&list);
 }
 
 #[tauri::command]
 async fn recent_list() -> Result<serde_json::Value, String> {
-    let list: Vec<String> = std::fs::read_to_string(recents_path()).ok()
-        .and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
+    let mut list = read_recent_list();
+    list.dedup();
     Ok(serde_json::json!({ "projects": list }))
 }
 
 #[tauri::command]
 async fn recent_remove(dir: String) -> Result<serde_json::Value, String> {
-    let path = recents_path();
-    let mut list: Vec<String> = std::fs::read_to_string(&path).ok()
-        .and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
-    list.retain(|p| p != &dir);
-    let _ = std::fs::write(&path, serde_json::to_string(&list).unwrap());
+    let normalized = normalize_path_str(&dir);
+    let mut list = read_recent_list();
+    list.retain(|p| p != &normalized);
+    write_recent_list(&list);
     Ok(serde_json::json!({ "success": true }))
 }
 

@@ -1750,8 +1750,6 @@ body {
   text-align: center;
   letter-spacing: 0.2em;
 }
-  flex-shrink: 0;
-}
 
 .step-icon-commit {
   background: linear-gradient(135deg, #60a5fa, #3b82f6);
