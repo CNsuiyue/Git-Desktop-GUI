@@ -315,11 +315,17 @@ async fn git_push(token: Option<String>, remote_name: Option<String>, state: Sta
         .spawn()
         .map_err(|e| format!("启动 git 推送失败: {}", e))?;
 
+    let mut error_lines = Vec::new();
+
     if let Some(stderr) = child.stderr.take() {
         let reader = BufReader::new(stderr);
         for line in reader.lines() {
             if let Ok(line) = line {
                 let line_lower = line.to_lowercase();
+                
+                if line_lower.contains("error") || line_lower.contains("fatal") || line_lower.contains("rejected") {
+                    error_lines.push(line.clone());
+                }
                 
                 if line_lower.contains("counting") || line_lower.contains("enumerating") {
                     app.emit("push:progress", serde_json::json!({
@@ -361,7 +367,12 @@ async fn git_push(token: Option<String>, remote_name: Option<String>, state: Sta
         })).ok();
         Ok(serde_json::json!({ "success": true }))
     } else {
-        Err("推送失败，远程仓库拒绝".into())
+        let error_msg = if error_lines.is_empty() {
+            "推送失败，请检查网络连接和远程仓库权限".to_string()
+        } else {
+            error_lines.join("\n")
+        };
+        Err(error_msg)
     }
 }
 
