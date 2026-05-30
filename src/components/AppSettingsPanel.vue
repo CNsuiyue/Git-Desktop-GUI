@@ -1,68 +1,147 @@
 <template>
   <div class="overlay" v-if="showSettings" @click.self="showSettings = false">
     <div class="dialog dialog-app-settings">
-      <div class="settings-header">
-        <h4>应用设置</h4>
-        <button class="btn-icon-sm" @click="showSettings = false">&#x2716;</button>
-      </div>
+      <div class="settings-layout">
+        <div class="settings-main">
+          <div class="settings-header">
+            <h4>应用设置</h4>
+            <button class="btn-icon-sm" @click="showSettings = false">&#x2716;</button>
+          </div>
 
-      <div class="settings-content">
-        <div class="settings-section">
-          <h5 class="section-title">外观</h5>
-          <div class="setting-row">
-            <div class="setting-text">
-              <span class="setting-title">暗色模式</span>
-              <span class="setting-desc">切换深色/浅色主题</span>
+          <div class="settings-content">
+            <div class="settings-section">
+              <h5 class="section-title">外观</h5>
+              <div class="setting-row">
+                <div class="setting-text">
+                  <span class="setting-title">暗色模式</span>
+                  <span class="setting-desc">切换深色/浅色主题</span>
+                </div>
+                <button class="btn-toggle" :class="{ active: store.darkMode }" @click="store.toggleTheme()">
+                  <span class="toggle-dot"></span>
+                </button>
+              </div>
             </div>
-            <button class="btn-toggle" :class="{ active: store.darkMode }" @click="store.toggleTheme()">
-              <span class="toggle-dot"></span>
-            </button>
+
+            <div class="settings-section">
+              <h5 class="section-title">常规</h5>
+              <div class="setting-row">
+                <div class="setting-text">
+                  <span class="setting-title">自动刷新</span>
+                  <span class="setting-desc">定时刷新仓库状态</span>
+                </div>
+                <select v-model.number="autoRefreshVal" class="select-sm" @change="onAutoRefresh">
+                  <option :value="0">关闭</option>
+                  <option :value="5">5 秒</option>
+                  <option :value="10">10 秒</option>
+                  <option :value="30">30 秒</option>
+                  <option :value="60">60 秒</option>
+                </select>
+              </div>
+              <div class="setting-row">
+                <div class="setting-text">
+                  <span class="setting-title">启动行为</span>
+                  <span class="setting-desc">应用启动时自动打开最近仓库</span>
+                </div>
+                <button class="btn-toggle" :class="{ active: autoOpenLastRepo }" @click="toggleAutoOpenLastRepo">
+                  <span class="toggle-dot"></span>
+                </button>
+              </div>
+              <div class="setting-row">
+                <div class="setting-text">
+                  <span class="setting-title">默认分支</span>
+                  <span class="setting-desc">新建仓库时的默认分支名称</span>
+                </div>
+                <input v-model="defaultBranch" class="input-sm" @blur="saveGlobalConfig('init.defaultBranch', defaultBranch)" />
+              </div>
+            </div>
+
+            <div class="settings-section">
+              <h5 class="section-title">Git 全局配置</h5>
+              <div class="setting-row">
+                <div class="setting-text">
+                  <span class="setting-title">用户名</span>
+                  <span class="setting-desc">提交时显示的作者名称</span>
+                </div>
+                <input v-model="gitUserName" class="input-sm" @blur="saveGlobalConfig('user.name', gitUserName)" />
+              </div>
+              <div class="setting-row">
+                <div class="setting-text">
+                  <span class="setting-title">邮箱</span>
+                  <span class="setting-desc">提交时显示的作者邮箱</span>
+                </div>
+                <input v-model="gitUserEmail" class="input-sm" @blur="saveGlobalConfig('user.email', gitUserEmail)" />
+              </div>
+              <div class="setting-row">
+                <div class="setting-text">
+                  <span class="setting-title">默认编辑器</span>
+                  <span class="setting-desc">用于编辑提交信息的编辑器</span>
+                </div>
+                <select v-model="coreEditor" class="select-sm" @change="saveGlobalConfig('core.editor', coreEditor)">
+                  <option value="">系统默认</option>
+                  <option value="code --wait">VS Code</option>
+                  <option value="vim">Vim</option>
+                  <option value="nano">Nano</option>
+                  <option value="notepad">记事本</option>
+                </select>
+              </div>
+              <div class="setting-row">
+                <div class="setting-text">
+                  <span class="setting-title">推送默认行为</span>
+                  <span class="setting-desc">git push 时的默认推送范围</span>
+                </div>
+                <select v-model="pushDefault" class="select-sm" @change="saveGlobalConfig('push.default', pushDefault)">
+                  <option value="simple">simple (推荐)</option>
+                  <option value="current">current</option>
+                  <option value="upstream">upstream</option>
+                  <option value="nothing">nothing</option>
+                </select>
+              </div>
+              <div class="setting-row">
+                <div class="setting-text">
+                  <span class="setting-title">行尾符处理</span>
+                  <span class="setting-desc">提交和检出时的行尾符转换</span>
+                </div>
+                <select v-model="coreAutocrlf" class="select-sm" @change="saveGlobalConfig('core.autocrlf', coreAutocrlf)">
+                  <option value="">默认</option>
+                  <option value="true">true (Windows)</option>
+                  <option value="input">input (Mac/Linux)</option>
+                  <option value="false">false</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="settings-section">
+              <h5 class="section-title">数据管理</h5>
+              <div class="setting-row">
+                <div class="setting-text">
+                  <span class="setting-title">Token 状态</span>
+                  <span class="setting-desc">{{ tokenStatus }}</span>
+                </div>
+                <button class="btn-sm" :class="store.authToken ? 'btn-danger' : 'btn-outline'" @click="handleTokenAction">
+                  {{ store.authToken ? '清除 Token' : '设置 Token' }}
+                </button>
+              </div>
+              <div class="setting-row">
+                <div class="setting-text">
+                  <span class="setting-title">最近仓库</span>
+                  <span class="setting-desc">清除最近打开的仓库记录</span>
+                </div>
+                <button class="btn-sm btn-outline" @click="clearRecentRepos">清除</button>
+              </div>
+            </div>
           </div>
         </div>
 
-        <div class="settings-section">
-          <h5 class="section-title">常规</h5>
-          <div class="setting-row">
-            <div class="setting-text">
-              <span class="setting-title">自动刷新</span>
-              <span class="setting-desc">定时刷新仓库状态</span>
+        <div class="settings-sidebar">
+          <div class="about-section">
+            <div class="about-logo">
+              <span class="about-logo-icon">&#x2B9E;</span>
             </div>
-            <select v-model.number="autoRefreshVal" class="select-sm" @change="onAutoRefresh">
-              <option :value="0">关闭</option>
-              <option :value="5">5 秒</option>
-              <option :value="10">10 秒</option>
-              <option :value="30">30 秒</option>
-              <option :value="60">60 秒</option>
-            </select>
-          </div>
-        </div>
-
-        <div class="settings-section">
-          <h5 class="section-title">Git 全局配置</h5>
-          <div class="setting-row">
-            <div class="setting-text">
-              <span class="setting-title">用户名</span>
-              <span class="setting-desc">提交时显示的作者名称</span>
-            </div>
-            <input v-model="gitUserName" class="input-sm" @blur="saveGlobalConfig('user.name', gitUserName)" />
-          </div>
-          <div class="setting-row">
-            <div class="setting-text">
-              <span class="setting-title">邮箱</span>
-              <span class="setting-desc">提交时显示的作者邮箱</span>
-            </div>
-            <input v-model="gitUserEmail" class="input-sm" @blur="saveGlobalConfig('user.email', gitUserEmail)" />
-          </div>
-        </div>
-
-        <div class="settings-section">
-          <h5 class="section-title">关于</h5>
-          <div class="app-info">
-            <div class="app-logo">&#x2B9E;</div>
-            <div class="app-details">
-              <span class="app-name">{{ appInfo.name }}</span>
-              <span class="app-version">v{{ appInfo.version }}</span>
-            </div>
+            <h5 class="about-name">{{ appInfo.name }}</h5>
+            <span class="about-version">v{{ appInfo.version }}</span>
+            <div class="about-divider"></div>
+            <p class="about-desc">一款轻量级 Git 桌面客户端</p>
+            <p class="about-desc">基于 Tauri + Vue 3 构建</p>
           </div>
         </div>
       </div>
@@ -71,19 +150,31 @@
 </template>
 
 <script setup>
-import { ref, watch, onMounted } from 'vue'
+import { ref, watch, computed, onMounted } from 'vue'
 import { useGitStore } from '../stores/git.js'
 
 const store = useGitStore()
 
 const showSettings = ref(false)
 const autoRefreshVal = ref(0)
+const autoOpenLastRepo = ref(false)
+const defaultBranch = ref('')
 const gitUserName = ref('')
 const gitUserEmail = ref('')
+const coreEditor = ref('')
+const pushDefault = ref('')
+const coreAutocrlf = ref('')
 const appInfo = ref({ name: 'Git-Desktop-GUI', version: '1.0.0' })
+
+const tokenStatus = computed(() => {
+  if (store.authToken) return '已保存'
+  if (store.hasTokenFile) return '已加密'
+  return '未设置'
+})
 
 onMounted(() => {
   autoRefreshVal.value = parseInt(localStorage.getItem('autoRefresh') || '0')
+  autoOpenLastRepo.value = localStorage.getItem('autoOpenLastRepo') === 'true'
   if (autoRefreshVal.value > 0) store.setAutoRefresh(autoRefreshVal.value)
 })
 
@@ -102,6 +193,10 @@ async function loadSettings() {
     lines.forEach(l => { const eq = l.indexOf('='); if (eq > 0) m[l.slice(0, eq)] = l.slice(eq + 1) })
     gitUserName.value = m['user.name'] || ''
     gitUserEmail.value = m['user.email'] || ''
+    defaultBranch.value = m['init.defaultBranch'] || ''
+    coreEditor.value = m['core.editor'] || ''
+    pushDefault.value = m['push.default'] || ''
+    coreAutocrlf.value = m['core.autocrlf'] || ''
   }
 }
 
@@ -114,18 +209,47 @@ function onAutoRefresh() {
   store.setAutoRefresh(autoRefreshVal.value)
 }
 
+function toggleAutoOpenLastRepo() {
+  autoOpenLastRepo.value = !autoOpenLastRepo.value
+  localStorage.setItem('autoOpenLastRepo', autoOpenLastRepo.value)
+}
+
+async function handleTokenAction() {
+  if (store.authToken) {
+    store.clearToken()
+  } else {
+    store.openRepo()
+  }
+}
+
+async function clearRecentRepos() {
+  localStorage.removeItem('lastRepoPath')
+}
+
 defineExpose({ open: () => { showSettings.value = true } })
 </script>
 
 <style scoped>
 .dialog-app-settings {
-  width: 480px;
+  width: 640px;
   max-width: 90vw;
   max-height: 80vh;
-  display: flex;
-  flex-direction: column;
+  height: 80vh;
   overflow: hidden;
   padding: 0;
+}
+
+.settings-layout {
+  display: flex;
+  height: 100%;
+}
+
+.settings-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border);
+  min-height: 0;
 }
 
 .settings-header {
@@ -145,6 +269,7 @@ defineExpose({ open: () => { showSettings.value = true } })
 .settings-content {
   padding: 20px 24px;
   overflow-y: auto;
+  flex: 1;
 }
 
 .settings-section {
@@ -246,41 +371,63 @@ defineExpose({ open: () => { showSettings.value = true } })
   width: 180px;
 }
 
-.app-info {
+.settings-sidebar {
+  width: 200px;
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 12px;
-  padding: 12px;
+  justify-content: center;
+  padding: 32px 24px;
   background: var(--bg);
-  border-radius: 8px;
 }
 
-.app-logo {
-  width: 40px;
-  height: 40px;
-  border-radius: 8px;
+.about-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 8px;
+}
+
+.about-logo {
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
   background: var(--primary);
   color: white;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 20px;
+  margin-bottom: 8px;
 }
 
-.app-details {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+.about-logo-icon {
+  font-size: 28px;
 }
 
-.app-name {
-  font-size: 14px;
+.about-name {
+  font-size: 16px;
   font-weight: 600;
   color: var(--text);
+  margin: 0;
 }
 
-.app-version {
+.about-version {
   font-size: 12px;
   color: var(--text-secondary);
+}
+
+.about-divider {
+  width: 40px;
+  height: 2px;
+  background: var(--border);
+  margin: 8px 0;
+}
+
+.about-desc {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: 0;
+  line-height: 1.5;
 }
 </style>
