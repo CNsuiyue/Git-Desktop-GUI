@@ -172,6 +172,33 @@
     </div>
   </Transition>
 
+  <!-- Error Dialog -->
+  <div class="overlay error-overlay" v-if="showErrorDialog" @click.self="showErrorDialog = false">
+    <div class="error-dialog">
+      <div class="error-dialog-header">
+        <div class="error-dialog-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="15" y1="9" x2="9" y2="15"></line>
+            <line x1="9" y1="9" x2="15" y2="15"></line>
+          </svg>
+        </div>
+        <div class="error-dialog-title">
+          <h4>推送失败</h4>
+          <p>以下是详细的错误信息</p>
+        </div>
+        <button class="btn-icon-sm" @click="showErrorDialog = false">&#x2716;</button>
+      </div>
+      <div class="error-dialog-body">
+        <pre class="error-message-detail">{{ errorMessage }}</pre>
+      </div>
+      <div class="error-dialog-footer">
+        <button class="btn-sm btn-outline" @click="copyError">复制错误信息</button>
+        <button class="btn-sm btn-primary" @click="showErrorDialog = false">关闭</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Error Toast -->
   <Transition name="toast-slide">
     <div class="error-toast" v-if="showError" @click="showError = false">
@@ -221,6 +248,7 @@ const tokenInput = ref('')
 // Toast
 const showSuccess = ref(false)
 const showError = ref(false)
+const showErrorDialog = ref(false)
 const errorMessage = ref('')
 
 // Cleanup
@@ -309,7 +337,8 @@ async function doUnlockAndGoNext() {
     pinInput.value = ''
     await executePush()
   } catch (e) {
-    pinError.value = typeof e === 'string' ? e : (e?.message || 'PIN 错误')
+    const msg = typeof e === 'string' ? e : (e?.message || 'PIN 错误')
+    showErrorDialogMsg(msg)
     pinInput.value = ''
   }
 }
@@ -353,7 +382,6 @@ async function saveTokenAndPush() {
 async function unlockAndPush() {
   if (!pinInput.value || pushing.value) return
   
-  pushing.value = true
   pinError.value = ''
   
   try {
@@ -361,16 +389,15 @@ async function unlockAndPush() {
     if (!result.success) {
       pinError.value = result.error || 'PIN 错误'
       pinInput.value = ''
-      pushing.value = false
       return
     }
     
+    pushing.value = true
     pinInput.value = ''
     await executePush()
   } catch (e) {
     pinError.value = typeof e === 'string' ? e : (e?.message || 'PIN 错误')
     pinInput.value = ''
-    pushing.value = false
   }
 }
 
@@ -433,7 +460,7 @@ async function executePush() {
     }, 500)
   } catch (e) {
     const msg = typeof e === 'string' ? e : (e?.message || '推送失败')
-    showErrorToast(msg)
+    showErrorDialogMsg(msg)
     closePushDialog()
   } finally {
     if (cleanup) {
@@ -453,5 +480,24 @@ function showErrorToast(msg) {
   errorMessage.value = msg
   showError.value = true
   setTimeout(() => { showError.value = false }, 5000)
+}
+
+function showErrorDialogMsg(msg) {
+  errorMessage.value = msg
+  showErrorDialog.value = true
+}
+
+async function copyError() {
+  try {
+    await navigator.clipboard.writeText(errorMessage.value)
+  } catch (e) {
+    // fallback
+    const ta = document.createElement('textarea')
+    ta.value = errorMessage.value
+    document.body.appendChild(ta)
+    ta.select()
+    document.execCommand('copy')
+    document.body.removeChild(ta)
+  }
 }
 </script>
