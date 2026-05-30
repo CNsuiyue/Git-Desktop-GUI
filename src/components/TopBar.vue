@@ -27,8 +27,119 @@
   <div class="overlay push-overlay" v-if="showPushDialog" @click.self="!pushing && closePushDialog()">
     <div class="push-dialog">
       
-      <!-- Pushing State -->
-      <div v-if="pushing" class="pushing-state">
+      <!-- Step Indicators -->
+      <div class="push-steps" v-if="!pushing">
+        <div class="push-step" :class="{ active: pushStep >= 1, done: pushStep > 1 }">
+          <span class="step-number">1</span>
+          <span class="step-label">提交信息</span>
+        </div>
+        <div class="step-connector" :class="{ done: pushStep > 1 }"></div>
+        <div class="push-step" :class="{ active: pushStep >= 2, done: pushStep > 2 }">
+          <span class="step-number">2</span>
+          <span class="step-label">身份验证</span>
+        </div>
+        <div class="step-connector" :class="{ done: pushStep > 2 }"></div>
+        <div class="push-step" :class="{ active: pushStep >= 3 }">
+          <span class="step-number">3</span>
+          <span class="step-label">推送</span>
+        </div>
+      </div>
+
+      <!-- Step 1: Commit Message -->
+      <div v-if="pushStep === 1 && !pushing" class="push-step-content">
+        <div class="step-header">
+          <h4>提交信息</h4>
+          <p>填写本次更改的说明</p>
+        </div>
+        <div class="step-body">
+          <textarea 
+            v-model="pushMessage" 
+            class="commit-input" 
+            placeholder="例如：修复登录页面的样式问题" 
+            ref="pushInputRef" 
+            rows="4"
+            @keydown.enter.ctrl="goToStep(2)"
+          ></textarea>
+          
+          <div class="remote-section" v-if="remoteList.length > 0">
+            <label>远程仓库</label>
+            <select v-model="selectedRemote" class="remote-select">
+              <option v-for="r in remoteList" :key="r.name" :value="r.name">{{ r.name }}</option>
+            </select>
+          </div>
+        </div>
+        <div class="step-actions">
+          <button class="btn-ghost" @click="closePushDialog()">取消</button>
+          <button 
+            class="btn-primary" 
+            :disabled="!pushMessage.trim()" 
+            @click="goToStep(2)"
+          >
+            下一步
+          </button>
+        </div>
+      </div>
+
+      <!-- Step 2: Auth -->
+      <div v-else-if="pushStep === 2 && !pushing" class="push-step-content">
+        <div class="step-header">
+          <h4>身份验证</h4>
+          <p>验证您的推送权限</p>
+        </div>
+        <div class="step-body">
+          <template v-if="store.authToken">
+            <div class="auth-ready-box">
+              <span class="auth-ready-icon">&#x2705;</span>
+              <div class="auth-ready-text">
+                <span class="auth-ready-title">Token 已就绪</span>
+                <span class="auth-ready-desc">已加载之前保存的认证信息</span>
+              </div>
+            </div>
+          </template>
+          <template v-else-if="store.hasTokenFile">
+            <div class="auth-pin-box">
+              <span class="auth-pin-icon">&#x1F512;</span>
+              <div class="auth-pin-content">
+                <span class="auth-pin-title">Token 已加密</span>
+                <input 
+                  v-model="pinInput" 
+                  type="password" 
+                  class="pin-input" 
+                  placeholder="输入 PIN 码解锁" 
+                  @keydown.enter="doUnlockAndGoNext"
+                  ref="pinInputRef"
+                />
+                <p class="auth-error" v-if="pinError">{{ pinError }}</p>
+              </div>
+            </div>
+          </template>
+          <template v-else>
+            <div class="auth-new-box">
+              <span class="auth-new-icon">&#x1F511;</span>
+              <div class="auth-new-content">
+                <span class="auth-new-title">首次设置 Token</span>
+                <input v-model="tokenInput" type="password" class="token-input" placeholder="GitHub Personal Access Token" />
+                <input v-model="pinInput" type="password" class="pin-input" placeholder="设置 PIN 码（6位以上）" />
+                <input v-model="pinConfirm" type="password" class="pin-input" placeholder="确认 PIN 码" @keydown.enter="doSaveTokenAndGoNext" />
+                <p class="auth-error" v-if="pinError">{{ pinError }}</p>
+              </div>
+            </div>
+          </template>
+        </div>
+        <div class="step-actions">
+          <button class="btn-ghost" @click="pushStep = 1">上一步</button>
+          <button 
+            class="btn-primary" 
+            :disabled="!canAuth" 
+            @click="handleAuthNext"
+          >
+            下一步
+          </button>
+        </div>
+      </div>
+
+      <!-- Step 3: Pushing -->
+      <div v-else-if="pushing" class="pushing-state">
         <div class="pushing-header">
           <h4>正在推送</h4>
           <p>{{ pushStatusText }}</p>
@@ -38,62 +149,6 @@
             <div class="progress-bar-fill" :style="{ width: progressPercent + '%' }"></div>
           </div>
           <p class="progress-text">{{ progressPercent }}%</p>
-        </div>
-      </div>
-
-      <!-- Input State -->
-      <div v-else class="input-state">
-        <div class="input-header">
-          <h4>推送更改</h4>
-          <p>输入提交信息并推送</p>
-        </div>
-        <div class="input-body">
-          <textarea 
-            v-model="pushMessage" 
-            class="commit-input" 
-            placeholder="例如：修复登录页面的样式问题" 
-            ref="pushInputRef" 
-            rows="3"
-          ></textarea>
-          
-          <div class="remote-section" v-if="remoteList.length > 0">
-            <label>远程仓库</label>
-            <select v-model="selectedRemote" class="remote-select">
-              <option v-for="r in remoteList" :key="r.name" :value="r.name">{{ r.name }}</option>
-            </select>
-          </div>
-
-          <div class="auth-section">
-            <template v-if="store.authToken">
-              <p class="auth-ready">Token 已加载</p>
-            </template>
-            <template v-else-if="store.hasTokenFile">
-              <input 
-                v-model="pinInput" 
-                type="password" 
-                class="pin-input" 
-                placeholder="输入 PIN 码" 
-                @keydown.enter="unlockAndPush"
-              />
-              <p class="auth-error" v-if="pinError">{{ pinError }}</p>
-            </template>
-            <template v-else>
-              <input v-model="tokenInput" type="password" class="token-input" placeholder="GitHub Token" />
-              <input v-model="pinInput" type="password" class="pin-input" placeholder="设置 PIN 码 (6位以上)" />
-              <input v-model="pinConfirm" type="password" class="pin-input" placeholder="确认 PIN 码" @keydown.enter="saveTokenAndPush" />
-              <p class="auth-error" v-if="pinError">{{ pinError }}</p>
-            </template>
-          </div>
-        </div>
-        <div class="input-actions">
-          <button class="btn-ghost" @click="closePushDialog()">取消</button>
-          <button 
-            class="btn-primary" 
-            :disabled="!canPush || pushing" 
-            @click="handlePush"
-          >
-            {{ getPushButtonText() }}
-          </button>
         </div>
       </div>
 
@@ -145,11 +200,13 @@ const appSettings = ref(null)
 
 // Push Dialog
 const showPushDialog = ref(false)
+const pushStep = ref(1)
 const pushMessage = ref('')
 const pushing = ref(false)
 const pushStatusText = ref('准备中...')
 const progressPercent = ref(0)
 const pushInputRef = ref(null)
+const pinInputRef = ref(null)
 
 // Remote
 const remoteList = ref([])
@@ -169,19 +226,11 @@ const errorMessage = ref('')
 // Cleanup
 let cleanup = null
 
-const canPush = computed(() => {
-  if (!pushMessage.value.trim()) return false
+const canAuth = computed(() => {
   if (store.authToken) return true
   if (store.hasTokenFile) return pinInput.value.length > 0
   return tokenInput.value && pinInput.value.length >= 6 && pinInput.value === pinConfirm.value
 })
-
-function getPushButtonText() {
-  if (pushing.value) return '推送中...'
-  if (!store.authToken && !store.hasTokenFile) return '保存并推送'
-  if (!store.authToken) return '解密并推送'
-  return '推送'
-}
 
 onMounted(() => {
   const autoRefreshVal = parseInt(localStorage.getItem('autoRefresh') || '0')
@@ -189,6 +238,7 @@ onMounted(() => {
 })
 
 async function openPushDialog() {
+  pushStep.value = 1
   pushMessage.value = ''
   pinInput.value = ''
   pinConfirm.value = ''
@@ -211,14 +261,28 @@ async function openPushDialog() {
 function closePushDialog() {
   showPushDialog.value = false
   pushing.value = false
+  pushStep.value = 1
   if (cleanup) {
     cleanup()
     cleanup = null
   }
 }
 
-async function handlePush() {
-  if (!canPush.value || pushing.value) return
+async function goToStep(step) {
+  if (step === 2 && !pushMessage.value.trim()) return
+  
+  pushStep.value = step
+  
+  if (step === 2) {
+    await nextTick()
+    if (store.hasTokenFile && !store.authToken) {
+      pinInputRef.value?.focus()
+    }
+  }
+}
+
+async function handleAuthNext() {
+  if (!canAuth.value) return
   
   if (!store.authToken && !store.hasTokenFile) {
     await saveTokenAndPush()
@@ -227,6 +291,45 @@ async function handlePush() {
   } else {
     await executePush()
   }
+}
+
+async function doUnlockAndGoNext() {
+  if (!pinInput.value || pushing.value) return
+  
+  pinError.value = ''
+  
+  try {
+    const result = await store.tryUnlockWithPin(pinInput.value)
+    if (!result.success) {
+      pinError.value = result.error || 'PIN 错误'
+      pinInput.value = ''
+      return
+    }
+    
+    pinInput.value = ''
+    await executePush()
+  } catch (e) {
+    pinError.value = typeof e === 'string' ? e : (e?.message || 'PIN 错误')
+    pinInput.value = ''
+  }
+}
+
+async function doSaveTokenAndGoNext() {
+  if (!tokenInput.value || pinInput.value.length < 6 || pinInput.value !== pinConfirm.value) {
+    pinError.value = 'PIN 不一致或长度不足 6 位'
+    return
+  }
+  
+  const result = await store.saveTokenWithPin(tokenInput.value, pinInput.value)
+  if (result.error) {
+    pinError.value = result.error
+    return
+  }
+  
+  pinInput.value = ''
+  pinConfirm.value = ''
+  tokenInput.value = ''
+  await executePush()
 }
 
 async function saveTokenAndPush() {
@@ -278,6 +381,7 @@ async function executePush() {
   }
   
   pushing.value = true
+  pushStep.value = 3
   progressPercent.value = 0
   pushStatusText.value = '准备中...'
   
