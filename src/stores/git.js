@@ -33,13 +33,18 @@ export const useGitStore = defineStore('git', () => {
   }
 
   async function tryUnlockWithPin(pin) {
-    const result = await window.gitAPI.loadToken(pin)
-    if (result.token) {
-      authToken.value = result.token
-      needPin.value = false
-      return true
+    try {
+      const result = await window.gitAPI.loadToken(pin)
+      if (result.token) {
+        authToken.value = result.token
+        needPin.value = false
+        return { success: true }
+      }
+      return { success: false, error: 'Token 解密失败' }
+    } catch (e) {
+      const msg = typeof e === 'string' ? e : (e?.message || 'PIN 错误')
+      return { success: false, error: msg }
     }
-    return false
   }
 
   async function saveTokenWithPin(token, pin) {

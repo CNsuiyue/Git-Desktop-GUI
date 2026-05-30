@@ -159,9 +159,9 @@ async function clearToken() {
 async function doUnlockRemote() {
   if (!remotePin.value || remoteDecrypting.value) return
   remoteDecrypting.value = true; remotePinError.value = ''
-  const ok = await store.tryUnlockWithPin(remotePin.value)
+  const result = await store.tryUnlockWithPin(remotePin.value)
   remoteDecrypting.value = false
-  if (!ok) { remotePinError.value = 'PIN 错误'; remotePin.value = '' }
+  if (!result.success) { remotePinError.value = result.error || 'PIN 错误'; remotePin.value = '' }
   else { remotePin.value = ''; remotePinError.value = '' }
 }
 

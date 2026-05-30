@@ -211,7 +211,10 @@ async function doPull() {
     } else {
       await window.gitAPI.setGlobalConfig('pull.rebase', 'false')
     }
-    await store.pull()
+    const result = await store.pull()
+    if (result?.error) {
+      store.error = result.error
+    }
   } finally {
     pulling.value = false
   }
@@ -221,7 +224,11 @@ async function doPush() {
   if (pushing.value) return
   pushing.value = true
   try {
-    await store.push()
+    const result = await store.push()
+    if (result?.error) {
+      store.error = result.error
+      return
+    }
     if (pushTags.value) {
       await window.gitAPI.pushTags()
     }
@@ -239,15 +246,21 @@ function toggleStashInput() {
 }
 
 async function doStash() {
-  await store.stash(stashMessage.value || undefined)
+  const result = await store.stash(stashMessage.value || undefined)
   showStashInput.value = false
   stashMessage.value = ''
   await loadStashCount()
+  if (result?.error) {
+    store.error = result.error
+  }
 }
 
 async function doStashPop() {
-  await store.stashPop()
+  const result = await store.stashPop()
   await loadStashCount()
+  if (result?.error) {
+    store.error = result.error
+  }
 }
 
 async function undoLastCommit() {

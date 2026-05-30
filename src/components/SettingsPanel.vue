@@ -95,20 +95,20 @@ async function executeConfirmed() {
     if (action === 'gc') {
       msg.value = '正在清理...'
       const r = await window.gitAPI.runGC('auto')
-      msg.value = r.error || '快速清理完成'
+      if (r.error) { msg.value = r.error } else { msg.value = '快速清理完成' }
     } else if (action === 'gc-deep') {
       msg.value = '正在深度压缩...'
       const r = await window.gitAPI.runGC('deep')
-      msg.value = r.error || '深度压缩完成'
+      if (r.error) { msg.value = r.error } else { msg.value = '深度压缩完成' }
     } else if (action === 'clean') {
       msg.value = '正在清理...'
       const r = await window.gitAPI.runClean()
-      msg.value = r.error || '已清理'
+      if (r.error) { msg.value = r.error } else { msg.value = '已清理' }
     }
     await store.refresh()
     setTimeout(() => { msg.value = '' }, 3000)
   } catch (e) {
-    msg.value = e.message
+    msg.value = e.message || '操作失败'
   }
 }
 

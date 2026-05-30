@@ -1,6 +1,6 @@
 {
   "name": "git-desktop-gui",
-  "version": "1.7.40",
+  "version": "1.8.40",
   "description": "轻量级 Git 桌面管理工具",
   "scripts": {
     "dev": "cargo tauri dev",

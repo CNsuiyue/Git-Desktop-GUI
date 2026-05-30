@@ -100,9 +100,9 @@ async function removeRecent(dir) {
 async function doUnlock() {
   if (appDecrypting.value) return
   appDecrypting.value = true; pinError.value = ''
-  const ok = await store.tryUnlockWithPin(pinInput.value)
+  const result = await store.tryUnlockWithPin(pinInput.value)
   appDecrypting.value = false
-  if (!ok) { pinError.value = 'PIN 错误，请重试'; pinInput.value = '' }
+  if (!result.success) { pinError.value = result.error || 'PIN 错误，请重试'; pinInput.value = '' }
 }
 
 function skipUnlock() {
