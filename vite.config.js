@@ -11,7 +11,8 @@ export default defineConfig({
     }
   },
   optimizeDeps: {
-    include: ['vue', 'pinia', '@tauri-apps/api/core', '@tauri-apps/api/window', '@tauri-apps/plugin-dialog']
+    include: ['vue', 'pinia', '@tauri-apps/api/core', '@tauri-apps/api/window', '@tauri-apps/plugin-dialog'],
+    force: false
   },
   build: {
     outDir: 'dist',
@@ -34,6 +35,20 @@ export default defineConfig({
   },
   server: {
     port: 5173,
-    strictPort: true
+    strictPort: true,
+    warmup: {
+      clientFiles: [
+        './src/main.js',
+        './src/App.vue',
+        './src/stores/git.js',
+        './src/components/*.vue'
+      ]
+    },
+    hmr: {
+      overlay: true
+    },
+    fs: {
+      strict: false
+    }
   }
 })
