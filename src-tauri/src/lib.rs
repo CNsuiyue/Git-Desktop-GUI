@@ -294,6 +294,13 @@ async fn git_pull(state: State<'_, RepoState>) -> Result<serde_json::Value, Stri
     Ok(serde_json::json!({ "success": true }))
 }
 
+#[tauri::command]
+async fn git_push_tags(state: State<'_, RepoState>) -> Result<serde_json::Value, String> {
+    let repo = get_repo(&state)?;
+    git_cmd_cached(&repo, &["push", "--tags"]).await?;
+    Ok(serde_json::json!({ "success": true }))
+}
+
 // ============== Branches / Tags / Stash / History / Diff / GC / Clean / Discard ==============
 macro_rules! git_json_cmd {
     ($name:ident, $args:expr, $key:expr) => {
@@ -342,9 +349,13 @@ async fn git_tag_delete(name: String, state: State<'_, RepoState>) -> Result<ser
 }
 
 #[tauri::command]
-async fn git_stash(state: State<'_, RepoState>) -> Result<serde_json::Value, String> {
+async fn git_stash(message: Option<String>, state: State<'_, RepoState>) -> Result<serde_json::Value, String> {
     let repo = get_repo(&state)?;
-    git_cmd_cached(&repo, &["stash"]).await?;
+    if let Some(msg) = message {
+        git_cmd_cached(&repo, &["stash", "push", "-m", &msg]).await?;
+    } else {
+        git_cmd_cached(&repo, &["stash"]).await?;
+    }
     Ok(serde_json::json!({ "success": true }))
 }
 
@@ -627,7 +638,7 @@ pub fn run() {
             open_repo, git_status, git_stage, git_unstage, git_stage_all, git_commit,
             git_history, git_diff, git_diff_staged, git_reset, git_revert,
             git_branches, git_checkout, git_delete_branch,
-            git_pull, git_push,
+            git_pull, git_push, git_push_tags,
             git_stash, git_stash_pop, git_stash_list, git_stash_apply, git_stash_drop,
             git_discard, git_get_remotes, git_set_remote, git_remove_remote,
             git_run_gc, git_run_clean, git_get_global_config, git_set_global_config, git_get_local_config,

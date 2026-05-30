@@ -277,8 +277,8 @@ export const useGitStore = defineStore('git', () => {
     return result
   }
 
-  async function stash() {
-    const result = await window.gitAPI.stash()
+  async function stash(message) {
+    const result = await window.gitAPI.stash(message)
     if (result.error) error.value = result.error
     else await refresh()
     return result
