@@ -2,7 +2,7 @@ use std::sync::Mutex;
 use std::process::{Command as StdCommand, Stdio};
 use std::io::{BufRead, BufReader};
 use tokio::process::Command;
-use tauri::{State, Manager, Emitter};
+use tauri::{State, Manager, Emitter, path::BaseDirectory};
 use serde::{Deserialize, Serialize};
 
 struct RepoState(Mutex<Option<String>>);
@@ -634,11 +634,44 @@ async fn recent_remove(dir: String) -> Result<serde_json::Value, String> {
 
 // ============== App Info ==============
 #[tauri::command]
-async fn app_info() -> Result<serde_json::Value, String> {
+async fn app_info(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    let version = read_package_version(&app).unwrap_or_else(|_| "0.0.0".to_string());
     Ok(serde_json::json!({
-        "version": "1.4.23", "name": "Git-Desktop-GUI",
+        "version": version,
+        "name": "Git-Desktop-GUI",
         "repo": "https://github.com/cnsuiyue/git-desktop-gui"
     }))
+}
+
+fn read_package_version(app: &tauri::AppHandle) -> Result<String, String> {
+    // Try resource path first (for production)
+    if let Ok(package_path) = app.path().resolve("package.json", BaseDirectory::Resource) {
+        if let Ok(content) = std::fs::read_to_string(&package_path) {
+            if let Ok(package) = serde_json::from_str::<serde_json::Value>(&content) {
+                if let Some(version) = package["version"].as_str() {
+                    return Ok(version.to_string());
+                }
+            }
+        }
+    }
+    
+    // Fallback for development: try multiple possible paths
+    let possible_paths = [
+        "package.json",                    // Current working directory
+        "../package.json",                 // One level up (src-tauri -> project root)
+    ];
+    
+    for path in &possible_paths {
+        if let Ok(content) = std::fs::read_to_string(path) {
+            if let Ok(package) = serde_json::from_str::<serde_json::Value>(&content) {
+                if let Some(version) = package["version"].as_str() {
+                    return Ok(version.to_string());
+                }
+            }
+        }
+    }
+    
+    Err("No version found".to_string())
 }
 
 #[tauri::command]
