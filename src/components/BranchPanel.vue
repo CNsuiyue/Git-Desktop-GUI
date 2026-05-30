@@ -39,17 +39,21 @@
       </div>
       <div v-if="tags.length === 0" class="empty-state" style="padding:20px"><p>暂无标签</p></div>
     </div>
+
+    <ConfirmDialog ref="confirmDialog" />
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useGitStore } from '../stores/git.js'
+import ConfirmDialog from './ConfirmDialog.vue'
 
 const store = useGitStore()
 const newBranchName = ref('')
 const newTagName = ref('')
 const tags = ref([])
+const confirmDialog = ref(null)
 
 onMounted(loadTags)
 
@@ -72,7 +76,15 @@ async function createTag() {
 }
 
 async function doDeleteTag(name) {
-  if (!confirm(`确定删除标签 "${name}"？`)) return
+  const confirmed = await confirmDialog.value.show({
+    title: '删除标签',
+    description: '从仓库中删除指定标签',
+    message: `确定删除标签 "${name}"？`,
+    confirmText: '删除标签'
+  })
+  
+  if (!confirmed) return
+  
   await window.gitAPI.deleteTag(name)
   await loadTags()
 }
@@ -80,7 +92,15 @@ async function doDeleteTag(name) {
 async function switchToBranch(name) { await store.switchBranch(name) }
 
 async function removeBranch(name) {
-  if (!confirm(`确定要删除分支 "${name}" 吗？`)) return
+  const confirmed = await confirmDialog.value.show({
+    title: '删除分支',
+    description: '从仓库中删除指定分支',
+    message: `确定要删除分支 "${name}" 吗？此操作不可撤销。`,
+    confirmText: '删除分支'
+  })
+  
+  if (!confirmed) return
+  
   await store.deleteBranch(name)
 }
 </script>

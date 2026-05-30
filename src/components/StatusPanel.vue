@@ -87,18 +87,22 @@
         <div class="diff-body" v-html="highlightedDiff"></div>
       </div>
     </div>
+
+    <ConfirmDialog ref="confirmDialog" />
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useGitStore } from '../stores/git.js'
+import ConfirmDialog from './ConfirmDialog.vue'
 
 const store = useGitStore()
 const commitMessage = ref('')
 const diffContent = ref(null)
 const diffFile = ref('')
 const searchQuery = ref('')
+const confirmDialog = ref(null)
 
 const highlightedDiff = computed(() => {
   if (!diffContent.value) return ''
@@ -154,7 +158,14 @@ async function showDiff(file, staged) {
 }
 
 async function confirmDiscard(file) {
-  if (confirm(`确定要丢弃 "${file.name}" 的所有更改吗？此操作不可撤销。`)) {
+  const confirmed = await confirmDialog.value.show({
+    title: '丢弃更改',
+    description: '此操作将永久丢弃文件的所有更改',
+    message: `确定要丢弃 "${file.name}" 的所有更改吗？此操作不可撤销。`,
+    confirmText: '丢弃更改'
+  })
+  
+  if (confirmed) {
     await store.discardFile(file.name)
   }
 }

@@ -152,14 +152,18 @@
         </div>
       </div>
     </div>
+
+    <ConfirmDialog ref="confirmDialog" />
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useGitStore } from '../stores/git.js'
+import ConfirmDialog from './ConfirmDialog.vue'
 
 const store = useGitStore()
+const confirmDialog = ref(null)
 
 const pulling = ref(false)
 const pushing = ref(false)
@@ -265,11 +269,23 @@ async function doStashPop() {
 
 async function undoLastCommit() {
   if (undoing.value) return
-  const confirmMsg = undoMode.value === 'hard' 
-    ? '硬撤销将丢弃所有更改，此操作不可逆！确定继续吗？'
-    : '撤销最近一次提交，确定继续吗？'
   
-  if (!confirm(confirmMsg)) return
+  const modeText = {
+    soft: '软撤销（更改保留在暂存区）',
+    mixed: '混合撤销（更改保留在工作区）',
+    hard: '硬撤销（丢弃所有更改，不可逆）'
+  }
+  
+  const confirmed = await confirmDialog.value.show({
+    title: '撤销提交',
+    description: `模式：${modeText[undoMode.value]}`,
+    message: undoMode.value === 'hard'
+      ? '硬撤销将丢弃所有更改，此操作不可逆！确定继续吗？'
+      : '撤销最近一次提交，确定继续吗？',
+    confirmText: '撤销提交'
+  })
+  
+  if (!confirmed) return
   
   undoing.value = true
   try {
@@ -281,7 +297,15 @@ async function undoLastCommit() {
 
 async function doClean() {
   if (cleaning.value) return
-  if (!confirm('确定要清理所有未跟踪的文件吗？此操作不可逆！')) return
+  
+  const confirmed = await confirmDialog.value.show({
+    title: '清理工作区',
+    description: '丢弃所有未跟踪的文件',
+    message: '确定要清理所有未跟踪的文件吗？此操作不可逆，文件将被永久删除！',
+    confirmText: '清理工作区'
+  })
+  
+  if (!confirmed) return
   
   cleaning.value = true
   try {
