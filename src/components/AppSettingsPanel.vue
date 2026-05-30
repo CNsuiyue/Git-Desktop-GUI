@@ -128,6 +128,32 @@
                 </div>
                 <button class="btn-sm btn-outline" @click="clearRecentRepos">清除</button>
               </div>
+              <div class="setting-row">
+                <div class="setting-text">
+                  <span class="setting-title">一键清除缓存</span>
+                  <span class="setting-desc">清除应用缓存数据，释放存储空间</span>
+                </div>
+                <button class="btn-sm btn-danger" @click="clearAppCache">清除缓存</button>
+              </div>
+              <div class="setting-row cache-options">
+                <div class="setting-text">
+                  <span class="setting-title">清除选项</span>
+                </div>
+                <div class="checkbox-group">
+                  <label class="checkbox-item">
+                    <input type="checkbox" v-model="clearOptions.history" />
+                    <span>历史记录</span>
+                  </label>
+                  <label class="checkbox-item">
+                    <input type="checkbox" v-model="clearOptions.recentRepos" />
+                    <span>最近仓库</span>
+                  </label>
+                  <label class="checkbox-item">
+                    <input type="checkbox" v-model="clearOptions.diffCache" />
+                    <span>差异缓存</span>
+                  </label>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -228,6 +254,35 @@ async function handleTokenAction() {
 async function clearRecentRepos() {
   localStorage.removeItem('lastRepoPath')
   await window.gitAPI.recentRemove()
+}
+
+const clearOptions = ref({
+  history: true,
+  recentRepos: false,
+  diffCache: true
+})
+
+async function clearAppCache() {
+  const tasks = []
+  
+  if (clearOptions.value.history) {
+    store.history = []
+    localStorage.removeItem('gitHistory')
+  }
+  
+  if (clearOptions.value.recentRepos) {
+    localStorage.removeItem('lastRepoPath')
+    localStorage.removeItem('recentProjects')
+    await window.gitAPI.recentRemove()
+  }
+  
+  if (clearOptions.value.diffCache) {
+    store.clearRepoData()
+  }
+  
+  await store.refresh()
+  
+  alert('缓存已清除！')
 }
 
 async function openRepoLink() {
@@ -459,5 +514,34 @@ defineExpose({ open: () => { showSettings.value = true } })
   font-size: 11px;
   color: var(--text-secondary);
   opacity: 0.7;
+}
+
+.cache-options {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.checkbox-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  width: 100%;
+}
+
+.checkbox-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.checkbox-item input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--primary);
+  cursor: pointer;
 }
 </style>

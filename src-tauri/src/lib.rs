@@ -5,6 +5,12 @@ use tokio::process::Command;
 use tauri::{State, Manager, Emitter, path::BaseDirectory};
 use serde::{Deserialize, Serialize};
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
 struct RepoState(Mutex<Option<String>>);
 
 fn get_repo(state: &State<RepoState>) -> Result<String, String> {
@@ -12,8 +18,22 @@ fn get_repo(state: &State<RepoState>) -> Result<String, String> {
     guard.as_ref().cloned().ok_or("未选择仓库".into())
 }
 
+fn git_command() -> Command {
+    let mut cmd = Command::new("git");
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    cmd
+}
+
+fn std_git_command() -> StdCommand {
+    let mut cmd = StdCommand::new("git");
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    cmd
+}
+
 async fn git_cmd_cached(repo: &str, args: &[&str]) -> Result<String, String> {
-    let output = Command::new("git")
+    let output = git_command()
         .args([&["-C", repo], args].concat())
         .output()
         .await
@@ -26,7 +46,7 @@ async fn git_cmd_cached(repo: &str, args: &[&str]) -> Result<String, String> {
 }
 
 async fn git_out_cached(repo: &str, args: &[&str]) -> Result<String, String> {
-    let output = Command::new("git")
+    let output = git_command()
         .args([&["-C", repo], args].concat())
         .output()
         .await
@@ -62,11 +82,11 @@ fn validate_path(path: &str) -> Result<std::path::PathBuf, String> {
 async fn open_repo(path: String, state: State<'_, RepoState>) -> Result<serde_json::Value, String> {
     let canonical = validate_path(&path)?;
     let path_str = canonical.to_string_lossy().to_string();
-    let output = Command::new("git").args(["-C", &path_str, "rev-parse", "--is-inside-work-tree"])
+    let output = git_command().args(["-C", &path_str, "rev-parse", "--is-inside-work-tree"])
         .output().await.map_err(|e| e.to_string())?;
     let is_repo = output.status.success();
     if !is_repo {
-        Command::new("git").args(["-C", &path_str, "init"]).output().await.map_err(|e| e.to_string())?;
+        git_command().args(["-C", &path_str, "init"]).output().await.map_err(|e| e.to_string())?;
     }
     *state.0.lock().unwrap() = Some(path_str.clone());
     save_recent(&path_str);
@@ -78,7 +98,7 @@ async fn open_repo(path: String, state: State<'_, RepoState>) -> Result<serde_js
 async fn git_status(state: State<'_, RepoState>) -> Result<serde_json::Value, String> {
     let repo = get_repo(&state)?;
 
-    let branch_fut = Command::new("git").args(["-C", &repo, "rev-parse", "--abbrev-ref", "HEAD"]).output();
+    let branch_fut = git_command().args(["-C", &repo, "rev-parse", "--abbrev-ref", "HEAD"]).output();
     let status_fut = git_out_cached(&repo, &["status", "--porcelain"]);
     let log_fut = git_out_cached(&repo, &["log", "--format=%H||%s||%an||%ae||%aI", "--max-count=10"]);
 
@@ -165,7 +185,7 @@ async fn git_commit(message: String, state: State<'_, RepoState>) -> Result<serd
 // ============== Git Config ==============
 #[tauri::command]
 async fn git_get_global_config() -> Result<serde_json::Value, String> {
-    let out = Command::new("git").args(["config", "--global", "--list"]).output().await.map_err(|e| e.to_string())?;
+    let out = git_command().args(["config", "--global", "--list"]).output().await.map_err(|e| e.to_string())?;
     Ok(serde_json::json!({ "config": String::from_utf8_lossy(&out.stdout).trim().to_string() }))
 }
 
@@ -187,9 +207,9 @@ async fn git_set_global_config(key: String, value: String, state: State<'_, Repo
     let _repo = get_repo(&state)?;
     validate_config_key(&key)?;
     if value.is_empty() {
-        Command::new("git").args(["config", "--global", "--unset", &key]).output().await.map_err(|e| e.to_string())?;
+        git_command().args(["config", "--global", "--unset", &key]).output().await.map_err(|e| e.to_string())?;
     } else {
-        Command::new("git").args(["config", "--global", &key, &value]).output().await.map_err(|e| e.to_string())?;
+        git_command().args(["config", "--global", &key, &value]).output().await.map_err(|e| e.to_string())?;
     }
     Ok(serde_json::json!({ "success": true }))
 }
@@ -199,9 +219,9 @@ async fn git_set_local_config(key: String, value: String, state: State<'_, RepoS
     let repo = get_repo(&state)?;
     validate_config_key(&key)?;
     if value.is_empty() {
-        Command::new("git").args(["-C", &repo, "config", "--local", "--unset", &key]).output().await.map_err(|e| e.to_string())?;
+        git_command().args(["-C", &repo, "config", "--local", "--unset", &key]).output().await.map_err(|e| e.to_string())?;
     } else {
-        Command::new("git").args(["-C", &repo, "config", "--local", &key, &value]).output().await.map_err(|e| e.to_string())?;
+        git_command().args(["-C", &repo, "config", "--local", &key, &value]).output().await.map_err(|e| e.to_string())?;
     }
     Ok(serde_json::json!({ "success": true }))
 }
@@ -239,8 +259,8 @@ fn validate_remote_url(url: &str) -> Result<(), String> {
 async fn git_set_remote(name: String, url: String, state: State<'_, RepoState>) -> Result<serde_json::Value, String> {
     validate_remote_url(&url)?;
     let repo = get_repo(&state)?;
-    let _ = Command::new("git").args(["-C", &repo, "remote", "remove", &name]).output().await;
-    Command::new("git").args(["-C", &repo, "remote", "add", &name, &url]).output().await.map_err(|e| e.to_string())?;
+    let _ = git_command().args(["-C", &repo, "remote", "remove", &name]).output().await;
+    git_command().args(["-C", &repo, "remote", "add", &name, &url]).output().await.map_err(|e| e.to_string())?;
     Ok(serde_json::json!({ "success": true }))
 }
 
@@ -248,7 +268,7 @@ async fn git_set_remote(name: String, url: String, state: State<'_, RepoState>) 
 async fn git_add_remote(name: String, url: String, state: State<'_, RepoState>) -> Result<serde_json::Value, String> {
     validate_remote_url(&url)?;
     let repo = get_repo(&state)?;
-    Command::new("git").args(["-C", &repo, "remote", "add", &name, &url]).output().await.map_err(|e| e.to_string())?;
+    git_command().args(["-C", &repo, "remote", "add", &name, &url]).output().await.map_err(|e| e.to_string())?;
     Ok(serde_json::json!({ "success": true }))
 }
 
@@ -265,7 +285,7 @@ async fn git_push(token: Option<String>, remote_name: Option<String>, state: Sta
     let repo = get_repo(&state)?;
     let remote_name = remote_name.unwrap_or("origin".into());
     let branch = String::from_utf8_lossy(
-        &Command::new("git").args(["-C", &repo, "rev-parse", "--abbrev-ref", "HEAD"]).output().await.unwrap().stdout
+        &git_command().args(["-C", &repo, "rev-parse", "--abbrev-ref", "HEAD"]).output().await.unwrap().stdout
     ).trim().to_string();
 
     let mut push_target = remote_name.clone();
@@ -288,7 +308,7 @@ async fn git_push(token: Option<String>, remote_name: Option<String>, state: Sta
         "detail": "正在统计对象..."
     })).map_err(|e| e.to_string())?;
 
-    let mut child = StdCommand::new("git")
+    let mut child = std_git_command()
         .args(["-C", &repo, "push", "-u", &push_target, &branch, "--progress", "--no-verify"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

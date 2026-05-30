@@ -1,6 +1,6 @@
 [package]
 name = "app"
-version = "1.8.40"
+version = "1.8.67"
 description = "轻量级 Git 桌面管理工具"
 authors = ["you"]
 license = ""
