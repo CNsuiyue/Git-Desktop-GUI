@@ -11,7 +11,14 @@
     @keyframes spin { to { transform:rotate(360deg); } }
     .loader-text { color:#64748b; font-size:14px; }
     .loader-logo { font-size:40px; color:#2563eb; font-weight:700; }
+    html.dark #loader { background:#1a1b26; }
+    html.dark .loader-text { color:#8b8fa3; }
   </style>
+  <script>
+    try {
+      if (localStorage.getItem('theme') === 'dark') document.documentElement.classList.add('dark');
+    } catch(e) {}
+  </script>
 </head>
 <body>
   <div id="app">

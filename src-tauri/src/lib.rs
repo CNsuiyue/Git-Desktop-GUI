@@ -36,18 +36,32 @@ async fn git_out_cached(repo: &str, args: &[&str]) -> Result<String, String> {
         String::from_utf8_lossy(&output.stderr)))
 }
 
+fn validate_path(path: &str) -> Result<std::path::PathBuf, String> {
+    let p = std::path::PathBuf::from(path);
+    if !p.exists() {
+        return Err("路径不存在".to_string());
+    }
+    let canonical = p.canonicalize().map_err(|e| format!("无效的路径: {}", e))?;
+    if !canonical.is_dir() {
+        return Err("路径不是一个目录".to_string());
+    }
+    Ok(canonical)
+}
+
 // ============== Open Repo ==============
 #[tauri::command]
 async fn open_repo(path: String, state: State<'_, RepoState>) -> Result<serde_json::Value, String> {
-    let output = Command::new("git").args(["-C", &path, "rev-parse", "--is-inside-work-tree"])
+    let canonical = validate_path(&path)?;
+    let path_str = canonical.to_string_lossy().to_string();
+    let output = Command::new("git").args(["-C", &path_str, "rev-parse", "--is-inside-work-tree"])
         .output().await.map_err(|e| e.to_string())?;
     let is_repo = output.status.success();
     if !is_repo {
-        Command::new("git").args(["-C", &path, "init"]).output().await.map_err(|e| e.to_string())?;
+        Command::new("git").args(["-C", &path_str, "init"]).output().await.map_err(|e| e.to_string())?;
     }
-    *state.0.lock().unwrap() = Some(path.clone());
-    save_recent(&path);
-    Ok(serde_json::json!({ "path": path, "initialized": !is_repo }))
+    *state.0.lock().unwrap() = Some(path_str.clone());
+    save_recent(&path_str);
+    Ok(serde_json::json!({ "path": path_str, "initialized": !is_repo }))
 }
 
 // ============== Git Status ==============
@@ -146,9 +160,23 @@ async fn git_get_global_config() -> Result<serde_json::Value, String> {
     Ok(serde_json::json!({ "config": String::from_utf8_lossy(&out.stdout).trim().to_string() }))
 }
 
+fn validate_config_key(key: &str) -> Result<(), String> {
+    let allowed_prefixes = [
+        "user.", "core.", "init.", "commit.", "push.", "pull.",
+        "remote.", "branch.", "merge.", "diff.", "alias.",
+        "credential.", "http.", "https.", "color.", "status.",
+        "log.", "stash.", "tag.", "gc.", "fetch.",
+    ];
+    if allowed_prefixes.iter().any(|p| key.starts_with(p)) {
+        return Ok(());
+    }
+    Err(format!("不允许修改配置项: {}", key))
+}
+
 #[tauri::command]
 async fn git_set_global_config(key: String, value: String, state: State<'_, RepoState>) -> Result<serde_json::Value, String> {
     let _repo = get_repo(&state)?;
+    validate_config_key(&key)?;
     if value.is_empty() {
         Command::new("git").args(["config", "--global", "--unset", &key]).output().await.map_err(|e| e.to_string())?;
     } else {
@@ -160,6 +188,7 @@ async fn git_set_global_config(key: String, value: String, state: State<'_, Repo
 #[tauri::command]
 async fn git_set_local_config(key: String, value: String, state: State<'_, RepoState>) -> Result<serde_json::Value, String> {
     let repo = get_repo(&state)?;
+    validate_config_key(&key)?;
     if value.is_empty() {
         Command::new("git").args(["-C", &repo, "config", "--local", "--unset", &key]).output().await.map_err(|e| e.to_string())?;
     } else {
@@ -186,8 +215,20 @@ async fn git_get_remotes(state: State<'_, RepoState>) -> Result<serde_json::Valu
     Ok(serde_json::json!({ "remotes": remotes }))
 }
 
+fn validate_remote_url(url: &str) -> Result<(), String> {
+    if url.starts_with("git@") || url.starts_with("ssh://") {
+        return Ok(());
+    }
+    let parsed = url::Url::parse(url).map_err(|_| "无效的远程仓库 URL".to_string())?;
+    match parsed.scheme() {
+        "https" | "http" | "git" => Ok(()),
+        _ => Err("不支持的远程仓库协议".to_string()),
+    }
+}
+
 #[tauri::command]
 async fn git_set_remote(name: String, url: String, state: State<'_, RepoState>) -> Result<serde_json::Value, String> {
+    validate_remote_url(&url)?;
     let repo = get_repo(&state)?;
     let _ = Command::new("git").args(["-C", &repo, "remote", "remove", &name]).output().await;
     Command::new("git").args(["-C", &repo, "remote", "add", &name, &url]).output().await.map_err(|e| e.to_string())?;
@@ -196,6 +237,7 @@ async fn git_set_remote(name: String, url: String, state: State<'_, RepoState>) 
 
 #[tauri::command]
 async fn git_add_remote(name: String, url: String, state: State<'_, RepoState>) -> Result<serde_json::Value, String> {
+    validate_remote_url(&url)?;
     let repo = get_repo(&state)?;
     Command::new("git").args(["-C", &repo, "remote", "add", &name, &url]).output().await.map_err(|e| e.to_string())?;
     Ok(serde_json::json!({ "success": true }))
@@ -446,6 +488,10 @@ async fn git_diff_staged(file: String, state: State<'_, RepoState>) -> Result<se
 async fn git_reset(commit_hash: String, mode: Option<String>, state: State<'_, RepoState>) -> Result<serde_json::Value, String> {
     let repo = get_repo(&state)?;
     let m = mode.unwrap_or("--soft".into());
+    let allowed = ["--soft", "--mixed", "--hard", "--merge", "--keep"];
+    if !allowed.contains(&m.as_str()) {
+        return Err(format!("不允许的 reset 模式: {}", m));
+    }
     git_cmd_cached(&repo, &["reset", &m, &commit_hash]).await?;
     Ok(serde_json::json!({ "success": true }))
 }
@@ -468,8 +514,11 @@ async fn git_discard(file: String, state: State<'_, RepoState>) -> Result<serde_
 async fn git_run_gc(mode: Option<String>, state: State<'_, RepoState>) -> Result<serde_json::Value, String> {
     let repo = get_repo(&state)?;
     let m = mode.unwrap_or("auto".into());
-    if m == "deep" { git_cmd_cached(&repo, &["gc", "--aggressive", "--prune=now"]).await?; }
-    else { git_cmd_cached(&repo, &["gc", "--auto"]).await?; }
+    match m.as_str() {
+        "auto" => { git_cmd_cached(&repo, &["gc", "--auto"]).await?; }
+        "deep" => { git_cmd_cached(&repo, &["gc", "--aggressive", "--prune=now"]).await?; }
+        _ => return Err(format!("不允许的 GC 模式: {}", m)),
+    }
     Ok(serde_json::json!({ "success": true }))
 }
 
@@ -531,8 +580,19 @@ fn decrypt_token_sync(data: &AuthFile, pin: &str) -> Result<String, String> {
     cipher.decrypt(nonce, ct.as_ref()).map(|v| String::from_utf8_lossy(&v).to_string()).map_err(|_| "PIN 错误".into())
 }
 
+fn validate_pin(pin: &str) -> Result<(), String> {
+    if pin.len() < 6 {
+        return Err("PIN 长度不能少于 6 位".to_string());
+    }
+    if pin.len() > 64 {
+        return Err("PIN 长度不能超过 64 位".to_string());
+    }
+    Ok(())
+}
+
 #[tauri::command]
 async fn auth_save_token(token: String, pin: String, state: State<'_, RepoState>) -> Result<serde_json::Value, String> {
+    validate_pin(&pin)?;
     let repo = get_repo(&state)?;
     let path = get_auth_path(&repo);
     let (salt, iv, ct) = tokio::task::spawn_blocking(move || encrypt_token_sync(&token, &pin)).await.map_err(|e| e.to_string())??;
@@ -571,6 +631,7 @@ async fn auth_remove_token_file(state: State<'_, RepoState>) -> Result<serde_jso
 
 #[tauri::command]
 async fn auth_change_pin(old_pin: String, new_pin: String, state: State<'_, RepoState>) -> Result<serde_json::Value, String> {
+    validate_pin(&new_pin)?;
     let repo = get_repo(&state)?;
     let path = get_auth_path(&repo);
     let data: AuthFile = serde_json::from_str(&std::fs::read_to_string(&path).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
@@ -676,7 +737,11 @@ fn read_package_version(app: &tauri::AppHandle) -> Result<String, String> {
 
 #[tauri::command]
 async fn open_url(url: String) -> Result<(), String> {
-    open::that(&url).map_err(|e| e.to_string())
+    let parsed = url::Url::parse(&url).map_err(|_| "无效的 URL".to_string())?;
+    match parsed.scheme() {
+        "https" | "http" => open::that(&url).map_err(|e| e.to_string()),
+        _ => Err("不支持的 URL 协议，仅允许 http/https".to_string()),
+    }
 }
 
 // ============== Main ==============
@@ -703,6 +768,12 @@ pub fn run() {
             }
             
             let window = app.get_webview_window("main").unwrap();
+            
+            #[cfg(not(debug_assertions))]
+            {
+                window.eval("window.__TAURI__.event.listen('tauri://destroyed', () => {}); document.addEventListener('contextmenu', e => e.preventDefault());").ok();
+            }
+            
             window.show().unwrap();
             window.set_focus().unwrap();
             

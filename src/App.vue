@@ -66,8 +66,8 @@
 <script setup>
 import { ref, onMounted, computed, defineAsyncComponent } from 'vue'
 import { useGitStore } from './stores/git.js'
-import TopBar from './components/TopBar.vue'
 
+const TopBar = defineAsyncComponent(() => import('./components/TopBar.vue'))
 const StatusPanel = defineAsyncComponent(() => import('./components/StatusPanel.vue'))
 const HistoryPanel = defineAsyncComponent(() => import('./components/HistoryPanel.vue'))
 const BranchPanel = defineAsyncComponent(() => import('./components/BranchPanel.vue'))
