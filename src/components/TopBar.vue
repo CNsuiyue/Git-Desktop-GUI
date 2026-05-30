@@ -158,20 +158,36 @@
   </div>
 
   <!-- Success Toast -->
-  <div class="success-toast" v-if="showSuccess">
-    <div class="success-content">
-      <h5>推送成功</h5>
-      <p>远程仓库已更新</p>
+  <Transition name="toast-slide">
+    <div class="success-toast" v-if="showSuccess">
+      <div class="toast-icon success-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="20 6 9 17 4 12"></polyline>
+        </svg>
+      </div>
+      <div class="success-content">
+        <h5>推送成功</h5>
+        <p>远程仓库已更新</p>
+      </div>
     </div>
-  </div>
+  </Transition>
 
   <!-- Error Toast -->
-  <div class="error-toast" v-if="showError" @click="showError = false">
-    <div class="error-content">
-      <h5>推送失败</h5>
-      <p>{{ errorMessage }}</p>
+  <Transition name="toast-slide">
+    <div class="error-toast" v-if="showError" @click="showError = false">
+      <div class="toast-icon error-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"></circle>
+          <line x1="15" y1="9" x2="9" y2="15"></line>
+          <line x1="9" y1="9" x2="15" y2="15"></line>
+        </svg>
+      </div>
+      <div class="error-content">
+        <h5>推送失败</h5>
+        <p>{{ errorMessage }}</p>
+      </div>
     </div>
-  </div>
+  </Transition>
 </template>
 
 <script setup>
