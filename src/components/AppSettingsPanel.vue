@@ -253,7 +253,8 @@ async function handleTokenAction() {
 
 async function clearRecentRepos() {
   localStorage.removeItem('lastRepoPath')
-  await window.gitAPI.recentRemove()
+  await window.gitAPI.clearAllRecentProjects()
+  await store.loadRecent()
 }
 
 const clearOptions = ref({
@@ -273,7 +274,7 @@ async function clearAppCache() {
   if (clearOptions.value.recentRepos) {
     localStorage.removeItem('lastRepoPath')
     localStorage.removeItem('recentProjects')
-    await window.gitAPI.recentRemove()
+    await window.gitAPI.clearAllRecentProjects()
   }
   
   if (clearOptions.value.diffCache) {

@@ -24,6 +24,7 @@ export const useGitStore = defineStore('git', () => {
   let autoRefreshTimer = null
   let refreshDebounceTimer = null
   let isRefreshing = false
+  let skipHistoryLoad = false
 
   const errorHandlers = new Set()
   let _changedFilesCache = null

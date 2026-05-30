@@ -93,8 +93,12 @@ async function openRecent(dir) {
 }
 
 async function removeRecent(dir) {
-  await window.gitAPI.removeRecentProject(dir)
-  await store.loadRecent()
+  try {
+    await window.gitAPI.removeRecentProject(dir)
+    await store.loadRecent()
+  } catch (e) {
+    console.error('删除最近项目失败:', e)
+  }
 }
 
 async function doUnlock() {

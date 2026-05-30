@@ -75,6 +75,7 @@ window.gitAPI = {
   changePin: (oldPin, newPin) => invoke('auth_change_pin', { oldPin, newPin }),
   getRecentProjects: () => invoke('recent_list'),
   removeRecentProject: (dir) => invoke('recent_remove', { dir }),
+  clearAllRecentProjects: () => invoke('recent_clear_all'),
   getTags: () => invoke('git_tags'),
   createTag: (name, message) => invoke('git_tag_create', { name, message }),
   deleteTag: (name) => invoke('git_tag_delete', { name }),
