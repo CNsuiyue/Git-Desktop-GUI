@@ -1,7 +1,7 @@
 use std::sync::Mutex;
 use std::process::Command as StdCommand;
 use tokio::process::Command;
-use tauri::State;
+use tauri::{State, Manager};
 use serde::{Deserialize, Serialize};
 
 struct RepoState(Mutex<Option<String>>);
@@ -585,6 +585,11 @@ pub fn run() {
             if cfg!(debug_assertions) {
                 app.handle().plugin(tauri_plugin_log::Builder::default().level(log::LevelFilter::Info).build())?;
             }
+            
+            let window = app.get_webview_window("main").unwrap();
+            window.show().unwrap();
+            window.set_focus().unwrap();
+            
             Ok(())
         })
         .run(tauri::generate_context!())
