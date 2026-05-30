@@ -1,8 +1,20 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { open } from '@tauri-apps/plugin-dialog'
+import { withRetry, isNetworkError } from './utils/retry.js'
 
 const api = window.gitAPI || {}
+
+const retryableInvoke = (command, args = {}, options = {}) => {
+  return withRetry(
+    () => invoke(command, args),
+    {
+      maxRetries: options.maxRetries || 2,
+      delay: options.delay || 1000,
+      shouldRetry: (error) => isNetworkError(error)
+    }
+  )
+}
 
 window.gitAPI = {
   openRepo: async () => {
@@ -13,7 +25,7 @@ window.gitAPI = {
 
   openPath: (path) => invoke('open_repo', { path }),
 
-  getStatus: () => invoke('git_status'),
+  getStatus: () => retryableInvoke('git_status', {}, { maxRetries: 3 }),
   stage: (files) => invoke('git_stage', { files }),
   unstage: (files) => invoke('git_unstage', { files }),
   stageAll: () => invoke('git_stage_all'),
@@ -26,8 +38,8 @@ window.gitAPI = {
   getBranches: () => invoke('git_branches'),
   checkout: (branchName, createNew) => invoke('git_checkout', { name: branchName, createNew }),
   deleteBranch: (branchName) => invoke('git_delete_branch', { name: branchName }),
-  pull: () => invoke('git_pull'),
-  push: (token, remoteName) => invoke('git_push', { token, remoteName }),
+  pull: () => retryableInvoke('git_pull', {}, { maxRetries: 2 }),
+  push: (token, remoteName) => retryableInvoke('git_push', { token, remoteName }, { maxRetries: 2 }),
   pushTags: () => invoke('git_push_tags'),
   stash: (message) => invoke('git_stash', { message }),
   stashPop: () => invoke('git_stash_pop'),

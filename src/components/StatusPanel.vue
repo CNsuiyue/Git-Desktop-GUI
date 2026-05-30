@@ -78,11 +78,11 @@
       </div>
     </div>
 
-    <div class="diff-modal" v-if="diffContent !== null" @click.self="diffContent = null">
+    <div class="diff-modal" v-if="diffContent !== null" @click.self="closeDiff">
       <div class="diff-content">
         <div class="diff-header">
           <span>{{ diffFile }}</span>
-          <button class="btn-icon" @click="diffContent = null">&#x2716;</button>
+          <button class="btn-icon" @click="closeDiff">&#x2716;</button>
         </div>
         <div class="diff-body" v-html="highlightedDiff"></div>
       </div>
@@ -104,20 +104,25 @@ const diffFile = ref('')
 const searchQuery = ref('')
 const confirmDialog = ref(null)
 
+const MAX_DIFF_LENGTH = 50000
+
 const highlightedDiff = computed(() => {
   if (!diffContent.value) return ''
-  const lines = diffContent.value.split('\n')
-  let html = ''
+  const content = diffContent.value.length > MAX_DIFF_LENGTH 
+    ? diffContent.value.substring(0, MAX_DIFF_LENGTH) + '\n... (差异内容过长，已截断)'
+    : diffContent.value
+  const lines = content.split('\n')
+  const parts = []
   for (const line of lines) {
     const esc = line.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    if (line.startsWith('@@')) html += `<span class="diff-hunk">${esc}</span>\n`
-    else if (line.startsWith('+')) html += `<span class="diff-add">${esc}</span>\n`
-    else if (line.startsWith('-')) html += `<span class="diff-del">${esc}</span>\n`
+    if (line.startsWith('@@')) parts.push(`<span class="diff-hunk">${esc}</span>`)
+    else if (line.startsWith('+')) parts.push(`<span class="diff-add">${esc}</span>`)
+    else if (line.startsWith('-')) parts.push(`<span class="diff-del">${esc}</span>`)
     else if (line.startsWith('diff ') || line.startsWith('index ') || line.startsWith('---') || line.startsWith('+++'))
-      html += `<span class="diff-meta">${esc}</span>\n`
-    else html += esc + '\n'
+      parts.push(`<span class="diff-meta">${esc}</span>`)
+    else parts.push(esc)
   }
-  return html
+  return parts.join('\n')
 })
 
 const searchLower = computed(() => searchQuery.value.toLowerCase().trim())
@@ -136,12 +141,17 @@ const hasChanges = computed(() =>
   filteredStaged.value.length > 0 || filteredChanged.value.length > 0
 )
 
+const totalFiles = computed(() => store.stagedFiles.length + store.changedFiles.length)
+
 function onKeydown(e) {
   if (e.ctrlKey && e.key === 's') { e.preventDefault(); store.stageAll() }
 }
 
 onMounted(() => window.addEventListener('keydown', onKeydown))
-onUnmounted(() => window.removeEventListener('keydown', onKeydown))
+onUnmounted(() => {
+  window.removeEventListener('keydown', onKeydown)
+  diffContent.value = null
+})
 
 async function doCommit() {
   if (!commitMessage.value.trim()) return
@@ -155,6 +165,11 @@ async function showDiff(file, staged) {
     ? await store.getFileDiffStaged(file.name)
     : await store.getFileDiff(file.name)
   diffContent.value = result.diff || '无差异'
+}
+
+function closeDiff() {
+  diffContent.value = null
+  diffFile.value = ''
 }
 
 async function confirmDiscard(file) {

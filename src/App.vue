@@ -18,7 +18,7 @@
             <button class="btn-sm btn-outline" @click="store.repoJustInitialized = false">跳过</button>
           </div>
         </div>
-        <KeepAlive>
+        <KeepAlive :max="3">
           <component :is="currentTab" />
         </KeepAlive>
       </div>

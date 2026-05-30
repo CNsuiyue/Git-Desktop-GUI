@@ -1,6 +1,9 @@
 import { defineStore } from 'pinia'
 import { ref, computed, shallowRef, triggerRef } from 'vue'
 
+const MAX_HISTORY_SIZE = 200
+const MAX_RECENT_PROJECTS = 10
+
 export const useGitStore = defineStore('git', () => {
   const repoPath = ref('')
   const branch = ref('')
@@ -21,6 +24,27 @@ export const useGitStore = defineStore('git', () => {
   let autoRefreshTimer = null
   let refreshDebounceTimer = null
   let isRefreshing = false
+
+  const errorHandlers = new Set()
+  let _changedFilesCache = null
+  let _stagedFilesCache = null
+  let _lastStatusRef = null
+
+  function onError(handler) {
+    errorHandlers.add(handler)
+    return () => errorHandlers.delete(handler)
+  }
+
+  function setError(message) {
+    error.value = message
+    if (message) {
+      errorHandlers.forEach(handler => handler(message))
+    }
+  }
+
+  function clearError() {
+    error.value = ''
+  }
 
   async function initAuth() {
     const result = await window.gitAPI.hasToken()
@@ -56,6 +80,20 @@ export const useGitStore = defineStore('git', () => {
     return result
   }
 
+  async function safeGitOperation(operation, errorMessage) {
+    try {
+      const result = await operation()
+      if (result?.error) {
+        setError(result.error)
+      }
+      return result
+    } catch (e) {
+      const msg = typeof e === 'string' ? e : (e?.message || errorMessage)
+      setError(msg)
+      return { error: msg }
+    }
+  }
+
   async function clearAuthToken() {
     authToken.value = ''
     needPin.value = false
@@ -64,8 +102,34 @@ export const useGitStore = defineStore('git', () => {
 
   async function loadRecent() {
     window.gitAPI.getRecentProjects().then(r => {
-      recentProjects.value = r.projects || []
+      recentProjects.value = limitArraySize(r.projects || [], MAX_RECENT_PROJECTS)
     })
+  }
+
+  function cleanup() {
+    if (autoRefreshTimer) {
+      clearInterval(autoRefreshTimer)
+      autoRefreshTimer = null
+    }
+    if (refreshDebounceTimer) {
+      clearTimeout(refreshDebounceTimer)
+      refreshDebounceTimer = null
+    }
+    _changedFilesCache = null
+    _stagedFilesCache = null
+    _lastStatusRef = null
+    errorHandlers.clear()
+  }
+
+  function clearRepoData() {
+    status.value = null
+    history.value = []
+    branches.value = []
+    currentBranch.value = ''
+    branch.value = ''
+    _changedFilesCache = null
+    _stagedFilesCache = null
+    _lastStatusRef = null
   }
 
   function toggleTheme() {
@@ -85,34 +149,51 @@ export const useGitStore = defineStore('git', () => {
 
   const hasRepo = computed(() => !!repoPath.value)
 
-  const changedFiles = computed(() => {
-    if (!status.value) return []
+  function buildChangedFiles(status) {
+    if (!status) return []
     const files = []
-    for (const f of status.value.modified || []) {
+    for (const f of status.modified || []) {
       files.push({ name: f, type: 'modified', staged: false })
     }
-    for (const f of status.value.not_added || []) {
+    for (const f of status.not_added || []) {
       files.push({ name: f, type: 'new', staged: false })
     }
-    for (const f of status.value.deleted || []) {
+    for (const f of status.deleted || []) {
       files.push({ name: f, type: 'deleted', staged: false })
     }
-    for (const f of status.value.renamed || []) {
+    for (const f of status.renamed || []) {
       files.push({ name: f.renamed || f, type: 'renamed', staged: false })
     }
     return files
-  })
+  }
 
-  const stagedFiles = computed(() => {
-    if (!status.value) return []
+  function buildStagedFiles(status) {
+    if (!status) return []
     const files = []
-    for (const f of status.value.staged || []) {
+    for (const f of status.staged || []) {
       files.push({ name: f, type: 'staged', staged: true })
     }
-    for (const f of status.value.created || []) {
+    for (const f of status.created || []) {
       files.push({ name: f, type: 'created', staged: true })
     }
     return files
+  }
+
+  const changedFiles = computed(() => {
+    if (_lastStatusRef === status.value && _changedFilesCache) {
+      return _changedFilesCache
+    }
+    _changedFilesCache = buildChangedFiles(status.value)
+    _lastStatusRef = status.value
+    return _changedFilesCache
+  })
+
+  const stagedFiles = computed(() => {
+    if (_lastStatusRef === status.value && _stagedFilesCache) {
+      return _stagedFilesCache
+    }
+    _stagedFilesCache = buildStagedFiles(status.value)
+    return _stagedFilesCache
   })
 
   const cleanState = computed(() => {
@@ -124,12 +205,12 @@ export const useGitStore = defineStore('git', () => {
     const result = await window.gitAPI.openRepo()
     if (!result) return
     if (result.error) {
-      error.value = result.error
+      setError(result.error)
       return
     }
     repoPath.value = result.path
     repoJustInitialized.value = result.initialized
-    error.value = ''
+    clearError()
     await refresh(false)
     initAuth()
   }
@@ -138,23 +219,21 @@ export const useGitStore = defineStore('git', () => {
     const result = await window.gitAPI.openPath(dir)
     if (!result) return
     if (result.error) {
-      error.value = result.error
+      setError(result.error)
       return
     }
     repoPath.value = result.path
     repoJustInitialized.value = result.initialized
-    error.value = ''
+    clearError()
     await refresh(false)
     initAuth()
   }
 
   async function setRemote(name, url) {
-    const result = await window.gitAPI.setRemote(name, url)
-    if (result.error) {
-      error.value = result.error
-      return result
-    }
-    return result
+    return await safeGitOperation(
+      () => window.gitAPI.setRemote(name, url),
+      '设置远程仓库失败'
+    )
   }
 
   async function getRemotes() {
@@ -162,12 +241,15 @@ export const useGitStore = defineStore('git', () => {
   }
 
   async function removeRemote(name) {
-    const result = await window.gitAPI.removeRemote(name)
-    if (result.error) {
-      error.value = result.error
-      return result
-    }
-    return result
+    return await safeGitOperation(
+      () => window.gitAPI.removeRemote(name),
+      '删除远程仓库失败'
+    )
+  }
+
+  function limitArraySize(arr, maxSize) {
+    if (arr.length <= maxSize) return arr
+    return arr.slice(0, maxSize)
   }
 
   async function refresh(silent = true) {
@@ -180,17 +262,17 @@ export const useGitStore = defineStore('git', () => {
       refreshDebounceTimer = setTimeout(async () => {
         isRefreshing = true
         if (!silent) loading.value = true
-        error.value = ''
+        clearError()
         try {
           const result = await window.gitAPI.getStatus()
           if (result.error) {
-            error.value = result.error
+            setError(result.error)
             resolve(false)
             return
           }
           status.value = result.status
           branch.value = result.branch
-          history.value = result.log || []
+          history.value = limitArraySize(result.log || [], MAX_HISTORY_SIZE)
           window.gitAPI.getBranches().then(brResult => {
             if (!brResult.error) {
               branches.value = brResult.branches
@@ -199,7 +281,7 @@ export const useGitStore = defineStore('git', () => {
           }).catch(() => {})
           resolve(true)
         } catch (e) {
-          error.value = e.message
+          setError(e.message)
           resolve(false)
         } finally {
           loading.value = false
@@ -210,95 +292,96 @@ export const useGitStore = defineStore('git', () => {
   }
 
   async function loadHistory(count = 50) {
-    const result = await window.gitAPI.getHistory(count)
+    const limitedCount = Math.min(count, MAX_HISTORY_SIZE)
+    const result = await window.gitAPI.getHistory(limitedCount)
     if (!result.error) {
-      history.value = result.log || []
+      history.value = limitArraySize(result.log || [], MAX_HISTORY_SIZE)
     }
   }
 
   async function stageFiles(files) {
     const result = await window.gitAPI.stage(files)
-    if (result.error) error.value = result.error
+    if (result.error) setError(result.error)
     else await refresh()
   }
 
   async function unstageFiles(files) {
     const result = await window.gitAPI.unstage(files)
-    if (result.error) error.value = result.error
+    if (result.error) setError(result.error)
     else await refresh()
   }
 
   async function stageAll() {
     const result = await window.gitAPI.stageAll()
-    if (result.error) error.value = result.error
+    if (result.error) setError(result.error)
     else await refresh()
   }
 
   async function commit(message) {
     const result = await window.gitAPI.commit(message)
-    if (result.error) error.value = result.error
+    if (result.error) setError(result.error)
     else await refresh()
     return result
   }
 
   async function resetTo(commitHash, mode) {
     const result = await window.gitAPI.reset(commitHash, mode)
-    if (result.error) error.value = result.error
+    if (result.error) setError(result.error)
     else await refresh()
     return result
   }
 
   async function revertCommit(commitHash) {
     const result = await window.gitAPI.revert(commitHash)
-    if (result.error) error.value = result.error
+    if (result.error) setError(result.error)
     else await refresh()
     return result
   }
 
   async function switchBranch(name, createNew = false) {
     const result = await window.gitAPI.checkout(name, createNew)
-    if (result.error) error.value = result.error
+    if (result.error) setError(result.error)
     else await refresh()
     return result
   }
 
   async function deleteBranch(name) {
     const result = await window.gitAPI.deleteBranch(name)
-    if (result.error) error.value = result.error
+    if (result.error) setError(result.error)
     else await refresh()
   }
 
   async function pull() {
     const result = await window.gitAPI.pull()
-    if (result.error) error.value = result.error
+    if (result.error) setError(result.error)
     else await refresh()
     return result
   }
 
   async function push() {
     const result = await window.gitAPI.push()
-    if (result.error) error.value = result.error
+    if (result.error) setError(result.error)
     else await refresh()
     return result
   }
 
   async function stash(message) {
     const result = await window.gitAPI.stash(message)
-    if (result.error) error.value = result.error
+    if (result.error) setError(result.error)
     else await refresh()
     return result
   }
 
   async function stashPop() {
     const result = await window.gitAPI.stashPop()
-    if (result.error) error.value = result.error
+    if (result.error) setError(result.error)
     else await refresh()
     return result
   }
 
   async function discardFile(file) {
     const result = await window.gitAPI.discard(file)
-    if (result.error) error.value = result.error
+    if (result.error) setError(result.error)
     else await refresh()
     return result
   }
@@ -321,6 +404,8 @@ export const useGitStore = defineStore('git', () => {
     resetTo, revertCommit,
     switchBranch, deleteBranch,
     pull, push, stash, stashPop, discardFile,
-    getFileDiff, getFileDiffStaged
+    getFileDiff, getFileDiffStaged,
+    onError, setError, clearError, safeGitOperation,
+    cleanup, clearRepoData
   }
 })
