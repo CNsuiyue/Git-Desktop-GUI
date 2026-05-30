@@ -20,6 +20,29 @@
 - **桌面壳**：Tauri 2 (Rust)
 - **Git 操作**：直接调用系统 Git CLI
 
+## 项目结构
+
+```
+src/
+├── components/          # Vue 组件
+├── composables/         # 组合式函数
+│   └── useGitActions.js # Git 操作逻辑
+├── stores/              # Pinia 状态管理
+│   └── git.js           # Git 仓库状态
+├── utils/               # 工具函数
+│   └── retry.js         # 网络请求重试
+├── api.js               # Tauri API 封装
+└── assets/              # 静态资源
+```
+
+## 优化特性
+
+- **内存优化** — 限制历史记录(200条)、最近项目(10个)、Diff 内容(50KB)
+- **网络重试** — 关键操作自动重试，支持指数退避
+- **路径规范化** — 自动处理 Windows 长路径(`\\?\`前缀)
+- **资源清理** — 组件卸载时自动清理定时器和事件监听
+- **缓存优化** — Computed 属性缓存，避免重复计算
+
 ## 环境要求
 
 - Node.js 18+
