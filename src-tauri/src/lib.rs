@@ -312,7 +312,7 @@ async fn git_push(token: Option<String>, remote_name: Option<String>, state: Sta
     })).ok();
 
     if token.is_some() {
-        const TOKEN_CHECK_TIMEOUT: u64 = 10;
+        const TOKEN_CHECK_TIMEOUT: u64 = 5;
         let check_child = std_git_command()
             .args(["-C", &repo, "ls-remote", "--heads", &push_target])
             .stdout(Stdio::null())
@@ -340,26 +340,21 @@ async fn git_push(token: Option<String>, remote_name: Option<String>, state: Sta
 
                 match check_status {
                     Some(s) if s.success() => {}
-                    Some(_) | None => {
+                    Some(_) => {
                         let stderr_output = c.stderr.take().map_or(String::new(), |s| {
                             let r = BufReader::new(s);
                             r.lines().filter_map(Result::ok).collect::<Vec<_>>().join("\n")
                         });
+                        let detail = stderr_output.trim().to_string();
                         let detect = stderr_output.to_lowercase();
-                        let msg = if detect.contains("invalid") || detect.contains("authentication") || detect.contains("401") || detect.contains("403") {
-                            format!("Token 已失效或权限不足，请重新设置 Token\n\n{}", stderr_output.trim())
-                        } else if check_status.is_none() {
-                            "Token 验证超时，请检查网络连接".to_string()
-                        } else {
-                            format!("无法访问远程仓库，请检查网络和 Token 权限\n\n{}", stderr_output.trim())
-                        };
-                        return Ok(serde_json::json!({ "error": msg }));
+                        if detect.contains("invalid") || detect.contains("authentication") || detect.contains("401") || detect.contains("403") {
+                            return Ok(serde_json::json!({ "error": "Token 已失效或权限不足，请重新设置 Token".to_string(), "detail": detail }));
+                        }
                     }
+                    None => {}
                 }
             }
-            Err(e) => {
-                return Ok(serde_json::json!({ "error": format!("Token 验证失败: {}", e) }));
-            }
+            Err(_) => {}
         }
     }
 
@@ -433,11 +428,25 @@ async fn git_push(token: Option<String>, remote_name: Option<String>, state: Sta
                 if start.elapsed() >= timeout {
                     let _ = child.kill();
                     let _ = child.wait();
-                    return Ok(serde_json::json!({ "error": format!("推送超时（{}秒），请检查网络连接", PUSH_TIMEOUT_SECS) }));
+                    let detail = if let Some(task) = stderr_task {
+                        task.await.unwrap_or_default().trim().to_string()
+                    } else {
+                        String::new()
+                    };
+                    return Ok(serde_json::json!({ "error": format!("推送超时（{}秒），请检查网络连接", PUSH_TIMEOUT_SECS), "detail": detail }));
                 }
                 tokio::time::sleep(std::time::Duration::from_millis(200)).await;
             }
-            Err(e) => return Ok(serde_json::json!({ "error": format!("推送执行失败: {}", e) }))
+            Err(e) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                let detail = if let Some(task) = stderr_task {
+                    task.await.unwrap_or_default().trim().to_string()
+                } else {
+                    String::new()
+                };
+                return Ok(serde_json::json!({ "error": format!("推送执行失败: {}", e), "detail": detail }))
+            }
         }
     };
 
@@ -456,7 +465,8 @@ async fn git_push(token: Option<String>, remote_name: Option<String>, state: Sta
         Ok(serde_json::json!({ "success": true }))
     } else {
         let error_msg = extract_push_error(&all_stderr);
-        Ok(serde_json::json!({ "error": error_msg }))
+        let detail = all_stderr.trim().to_string();
+        Ok(serde_json::json!({ "error": error_msg, "detail": detail }))
     }
 }
 

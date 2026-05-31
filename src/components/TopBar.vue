@@ -30,12 +30,12 @@
       <!-- Step Indicators -->
       <div class="push-steps" v-if="!pushing">
         <div class="push-step" :class="{ active: pushStep >= 1, done: pushStep > 1 }">
-          <span class="step-number">1</span>
+          <span class="step-number">{{ pushStep > 1 ? '✓' : '1' }}</span>
           <span class="step-label">提交信息</span>
         </div>
         <div class="step-connector" :class="{ done: pushStep > 1 }"></div>
         <div class="push-step" :class="{ active: pushStep >= 2, done: pushStep > 2 }">
-          <span class="step-number">2</span>
+          <span class="step-number">{{ pushStep > 2 ? '✓' : '2' }}</span>
           <span class="step-label">身份验证</span>
         </div>
         <div class="step-connector" :class="{ done: pushStep > 2 }"></div>
@@ -140,13 +140,24 @@
 
       <!-- Step 3: Pushing -->
       <div v-else-if="pushing" class="pushing-state">
+        <div class="pushing-icon">
+          <div class="push-spinner">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10" stroke-opacity="0.25" />
+              <path d="M12 2a10 10 0 0 1 10 10" stroke-linecap="round" />
+            </svg>
+          </div>
+        </div>
         <div class="pushing-header">
           <h4>正在推送</h4>
-          <p>{{ pushStatusText }}</p>
+          <p class="pushing-status">{{ pushStatusText }}<span class="pushing-dots"><span>.</span><span>.</span><span>.</span></span></p>
         </div>
         <div class="pushing-body">
+          <div class="pushing-stage-icon">{{ stageIcon }}</div>
           <div class="progress-bar">
-            <div class="progress-bar-fill" :style="{ width: progressPercent + '%' }"></div>
+            <div class="progress-bar-fill" :style="{ width: progressPercent + '%' }">
+              <div class="progress-bar-shimmer"></div>
+            </div>
           </div>
           <p class="progress-text">{{ progressPercent }}%</p>
         </div>
@@ -191,6 +202,10 @@
       </div>
       <div class="error-dialog-body">
         <pre class="error-message-detail">{{ errorMessage }}</pre>
+        <div class="error-detail-section" v-if="errorDetail">
+          <div class="error-detail-label">Git 原始输出</div>
+          <pre class="error-detail-raw">{{ errorDetail }}</pre>
+        </div>
       </div>
       <div class="error-dialog-footer">
         <button class="btn-sm btn-outline" @click="copyError">复制错误信息</button>
@@ -250,6 +265,7 @@ const showSuccess = ref(false)
 const showError = ref(false)
 const showErrorDialog = ref(false)
 const errorMessage = ref('')
+const errorDetail = ref('')
 
 // Cleanup
 let cleanup = null
@@ -258,6 +274,14 @@ const canAuth = computed(() => {
   if (store.authToken) return true
   if (store.hasTokenFile) return pinInput.value.length > 0
   return tokenInput.value && pinInput.value.length >= 6 && pinInput.value === pinConfirm.value
+})
+
+const stageIcon = computed(() => {
+  if (progressPercent.value < 15) return '\u{1F4E6}'
+  if (progressPercent.value < 35) return '\u{1F4DD}'
+  if (progressPercent.value < 60) return '\u{1F4E4}'
+  if (progressPercent.value < 95) return '\u{1F680}'
+  return '\u{2705}'
 })
 
 onMounted(() => {
@@ -447,7 +471,8 @@ async function executePush() {
     const pr = await window.gitAPI.push(store.authToken, selectedRemote.value)
     if (pr.error) {
       try { await window.gitAPI.reset('HEAD~1', '--soft') } catch {}
-      throw new Error(pr.error)
+      showErrorDialogMsg(pr.error, pr.detail)
+      return
     }
 
     progressPercent.value = 100
@@ -483,14 +508,18 @@ function showErrorToast(msg) {
   setTimeout(() => { showError.value = false }, 5000)
 }
 
-function showErrorDialogMsg(msg) {
+function showErrorDialogMsg(msg, detail) {
   errorMessage.value = msg || '推送失败，请检查网络连接和远程仓库权限'
+  errorDetail.value = detail || ''
   showErrorDialog.value = true
 }
 
 async function copyError() {
   try {
-    await navigator.clipboard.writeText(errorMessage.value)
+    const text = errorDetail.value
+      ? errorMessage.value + '\n\n--- Git 原始输出 ---\n' + errorDetail.value
+      : errorMessage.value
+    await navigator.clipboard.writeText(text)
   } catch (e) {
     // fallback
     const ta = document.createElement('textarea')
