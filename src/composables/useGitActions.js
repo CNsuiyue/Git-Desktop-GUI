@@ -69,7 +69,8 @@ export function useGitActions() {
     loadingStates.value.pushing = true
     
     try {
-      const result = await store.push()
+      const token = store.authToken || undefined
+      const result = await store.push(token)
       if (result?.error) {
         store.error = result.error
         return

@@ -359,8 +359,8 @@ export const useGitStore = defineStore('git', () => {
     return result
   }
 
-  async function push() {
-    const result = await window.gitAPI.push()
+  async function push(token, remoteName) {
+    const result = await window.gitAPI.push(token, remoteName)
     if (result.error) setError(result.error)
     else await refresh()
     return result
