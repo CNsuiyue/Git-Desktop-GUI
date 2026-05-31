@@ -292,15 +292,73 @@ async fn git_push(token: Option<String>, remote_name: Option<String>, state: Sta
     };
 
     let mut push_target = remote_name.clone();
-    if let Some(t) = token {
+    if let Some(ref t) = token {
         if let Ok(fetch_url) = git_cmd_cached(&repo, &["remote", "get-url", &remote_name]).await {
             let fetch_url = fetch_url.trim();
             if fetch_url.starts_with("https://") {
                 if let Ok(mut u) = url::Url::parse(fetch_url) {
                     let _ = u.set_username("token");
-                    let _ = u.set_password(Some(&t));
+                    let _ = u.set_password(Some(t.as_str()));
                     push_target = u.to_string();
                 }
+            }
+        }
+    }
+
+    app.emit("push:progress", serde_json::json!({
+        "stage": "checking-auth",
+        "progress": 5,
+        "detail": "正在验证认证信息..."
+    })).ok();
+
+    if token.is_some() {
+        const TOKEN_CHECK_TIMEOUT: u64 = 10;
+        let check_child = std_git_command()
+            .args(["-C", &repo, "ls-remote", "--heads", &push_target])
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .stdin(Stdio::null())
+            .spawn();
+
+        match check_child {
+            Ok(mut c) => {
+                let check_start = std::time::Instant::now();
+                let check_status = loop {
+                    match c.try_wait() {
+                        Ok(Some(s)) => break Some(s),
+                        Ok(None) => {
+                            if check_start.elapsed() >= std::time::Duration::from_secs(TOKEN_CHECK_TIMEOUT) {
+                                let _ = c.kill();
+                                let _ = c.wait();
+                                break None;
+                            }
+                            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                        }
+                        Err(_) => break None,
+                    }
+                };
+
+                match check_status {
+                    Some(s) if s.success() => {}
+                    Some(_) | None => {
+                        let stderr_output = c.stderr.take().map_or(String::new(), |s| {
+                            let r = BufReader::new(s);
+                            r.lines().filter_map(Result::ok).collect::<Vec<_>>().join("\n")
+                        });
+                        let detect = stderr_output.to_lowercase();
+                        let msg = if detect.contains("invalid") || detect.contains("authentication") || detect.contains("401") || detect.contains("403") {
+                            format!("Token 已失效或权限不足，请重新设置 Token\n\n{}", stderr_output.trim())
+                        } else if check_status.is_none() {
+                            "Token 验证超时，请检查网络连接".to_string()
+                        } else {
+                            format!("无法访问远程仓库，请检查网络和 Token 权限\n\n{}", stderr_output.trim())
+                        };
+                        return Ok(serde_json::json!({ "error": msg }));
+                    }
+                }
+            }
+            Err(e) => {
+                return Ok(serde_json::json!({ "error": format!("Token 验证失败: {}", e) }));
             }
         }
     }
