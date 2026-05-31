@@ -187,14 +187,14 @@
           <h4>推送失败</h4>
           <p>以下是详细的错误信息</p>
         </div>
-        <button class="btn-icon-sm" @click="showErrorDialog = false">&#x2716;</button>
+        <button class="btn-icon-sm" @click="showErrorDialog = false; closePushDialog()">&#x2716;</button>
       </div>
       <div class="error-dialog-body">
         <pre class="error-message-detail">{{ errorMessage }}</pre>
       </div>
       <div class="error-dialog-footer">
         <button class="btn-sm btn-outline" @click="copyError">复制错误信息</button>
-        <button class="btn-sm btn-primary" @click="showErrorDialog = false">关闭</button>
+        <button class="btn-sm btn-primary" @click="showErrorDialog = false; closePushDialog()">关闭</button>
       </div>
     </div>
   </div>
@@ -446,7 +446,7 @@ async function executePush() {
     progressPercent.value = 50
     const pr = await window.gitAPI.push(store.authToken, selectedRemote.value)
     if (pr.error) {
-      await window.gitAPI.reset('HEAD~1', '--soft')
+      try { await window.gitAPI.reset('HEAD~1', '--soft') } catch {}
       throw new Error(pr.error)
     }
 
@@ -459,9 +459,10 @@ async function executePush() {
       store.refresh()
     }, 500)
   } catch (e) {
-    const msg = typeof e === 'string' ? e : (e?.message || '推送失败')
+    const msg = (typeof e === 'string' && e.trim()) ? e
+      : (typeof e?.message === 'string' && e.message.trim()) ? e.message
+      : (typeof e === 'object' ? JSON.stringify(e) : String(e ?? '推送失败'))
     showErrorDialogMsg(msg)
-    closePushDialog()
   } finally {
     if (cleanup) {
       cleanup()
@@ -483,7 +484,7 @@ function showErrorToast(msg) {
 }
 
 function showErrorDialogMsg(msg) {
-  errorMessage.value = msg
+  errorMessage.value = msg || '推送失败，请检查网络连接和远程仓库权限'
   showErrorDialog.value = true
 }
 
